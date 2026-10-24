@@ -70,7 +70,6 @@ jobs:
         with:
           path: |
             ~/Library/Caches/org.swift.swiftpm
-            build/SourcePackages
           key: spm-${{ runner.os }}-${{ hashFiles('firefox-ios/Client.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'BrowserKit/Package.resolved', 'MozillaRustComponents/Package.resolved') }}
           restore-keys: |
             spm-${{ runner.os }}-
@@ -80,6 +79,8 @@ jobs:
           xcodebuild -resolvePackageDependencies \
             -project firefox-ios/Client.xcodeproj \
             -scheme Firefox \
+            -onlyUsePackageVersionsFromResolvedFile \
+            -skipMacroValidation \
             -derivedDataPath build
 
       - name: Build app (unsigned)
@@ -93,6 +94,8 @@ jobs:
             -destination 'generic/platform=iOS' \
             -destination-timeout 120 \
             -derivedDataPath build \
+            -skipMacroValidation \
+            COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
