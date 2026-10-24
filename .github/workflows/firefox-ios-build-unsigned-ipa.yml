@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: unsigned-ipa-${{ github.ref }}
@@ -124,6 +124,23 @@ jobs:
           path: dist/Firefox-unsigned.ipa
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish build log on failure
+        if: failure()
+        run: |
+          if [ ! -f build.log ]; then
+            echo "build.log is missing"
+            exit 0
+          fi
+          mkdir -p ci-logs
+          tail -n 40000 build.log > ci-logs/build.log
+          grep -n -E "error: " ci-logs/build.log | tail -n 400 > ci-logs/errors.txt || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B ci-logs
+          git add -f ci-logs
+          git commit -m "CI build log ${GITHUB_RUN_ID}" || exit 0
+          git push --force origin ci-logs
 
       - name: Upload build log
         if: always()
