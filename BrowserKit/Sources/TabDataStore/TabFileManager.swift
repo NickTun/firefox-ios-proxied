@@ -75,9 +75,9 @@ public struct DefaultTabFileManager: TabFileManager {
 
     public func tabSessionDataDirectory() -> URL? {
         guard let containerID = BrowserKitInformation.shared.sharedContainerIdentifier else { return nil }
-        var containerURL = fileManager.containerURL(forSecurityApplicationGroupIdentifier: containerID)
-        containerURL = containerURL?.appendingPathComponent(PathInfo.rootDirectory)
-        return containerURL?.appendingPathComponent(PathInfo.tabSessionData)
+        return containerURL(for: containerID)?
+            .appendingPathComponent(PathInfo.rootDirectory)
+            .appendingPathComponent(PathInfo.tabSessionData)
     }
 
     public func windowDataDirectory(isBackup: Bool) -> URL? {
@@ -90,12 +90,23 @@ public struct DefaultTabFileManager: TabFileManager {
             return nil
         }
         let pathInfo = isBackup ? PathInfo.backup : PathInfo.primary
-        guard let containerURL = fileManager.containerURL(forSecurityApplicationGroupIdentifier: containerID) else {
-            logger.log("Failed to get the window data container URL", level: .warning, category: .tabs)
-            return nil
+        return containerURL(for: containerID)?
+            .appendingPathComponent(PathInfo.rootDirectory)
+            .appendingPathComponent(pathInfo)
+    }
+
+    /// Builds without the app group entitlement (unsigned or sideloaded builds) have no shared container.
+    /// Falling back to the app container keeps window and tab session data across launches instead of
+    /// silently dropping it, which would leave the browser without restored tabs.
+    private func containerURL(for containerID: String) -> URL? {
+        if let sharedContainerURL = fileManager.containerURL(forSecurityApplicationGroupIdentifier: containerID) {
+            return sharedContainerURL
         }
-        let appendedURL = containerURL.appendingPathComponent(PathInfo.rootDirectory)
-        return appendedURL.appendingPathComponent(pathInfo)
+        let directory = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        if let directory {
+            try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        return directory
     }
 
     public func contentsOfDirectory(at path: URL) -> [URL] {
