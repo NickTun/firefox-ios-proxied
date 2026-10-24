@@ -26,6 +26,7 @@ struct MainMenuConfigurationUtility: Equatable, FeatureFlaggable {
         static let avatarCircle = StandardImageIdentifiers.Large.avatarCircle
         static let share = StandardImageIdentifiers.Large.shareApple
         static let reportBrokenSite = StandardImageIdentifiers.Large.report
+        static let proxy = StandardImageIdentifiers.Large.globe
     }
 
     private let profile: Profile
@@ -40,6 +41,10 @@ struct MainMenuConfigurationUtility: Equatable, FeatureFlaggable {
 
     private var canSendTechnicalData: Bool {
         return profile.prefs.boolForKey(AppConstants.prefSendUsageData) ?? true
+    }
+
+    private var proxySettings: ProxySettings {
+        return ProxySettings(prefs: profile.prefs)
     }
 
     private var isSummarizerOn: Bool {
@@ -183,6 +188,7 @@ struct MainMenuConfigurationUtility: Equatable, FeatureFlaggable {
 
     // Account Section
     private func getAccountSection(with uuid: WindowUUID, tabInfo: MainMenuTabInfo, profileImage: UIImage?) -> MenuSection {
+        let proxyElement = makeProxyElement(with: uuid, tabInfo: tabInfo)
         return MenuSection(
             isHomepage: tabInfo.isHomepage,
             options: [
@@ -209,6 +215,7 @@ struct MainMenuConfigurationUtility: Equatable, FeatureFlaggable {
                         )
                     }
                 ),
+                proxyElement,
                 MenuElement(
                     title: .MainMenu.OtherToolsSection.Settings,
                     iconName: Icons.settings,
@@ -229,6 +236,47 @@ struct MainMenuConfigurationUtility: Equatable, FeatureFlaggable {
                     }
                 ),
         ])
+    }
+
+    private func makeProxyElement(with uuid: WindowUUID, tabInfo: MainMenuTabInfo) -> MenuElement {
+        let isSupported = ProxyManager.isSupported
+        let settings = proxySettings
+        let isConfigured = settings.isConfigured
+        let actionType: MainMenuActionType = isSupported && isConfigured
+            ? .tapToggleProxy
+            : .tapNavigateToDestination
+        let destination: MenuNavigationDestination? = isConfigured
+            ? nil
+            : MenuNavigationDestination(.settings)
+        let summary: String?
+        if !isSupported {
+            summary = "Requires iOS 17"
+        } else if isConfigured {
+            summary = settings.endpoint?.displayName
+        } else {
+            summary = "Not configured"
+        }
+
+        return MenuElement(
+            title: "Proxy",
+            description: summary,
+            iconName: Icons.proxy,
+            isEnabled: isSupported,
+            isActive: isSupported && settings.isEnabled && isConfigured,
+            a11yLabel: "Proxy",
+            a11yHint: "",
+            a11yId: "MainMenu.proxy",
+            action: {
+                store.dispatch(
+                    MainMenuAction(
+                        windowUUID: uuid,
+                        actionType: actionType,
+                        navigationDestination: destination,
+                        telemetryInfo: TelemetryInfo(isHomepage: tabInfo.isHomepage)
+                    )
+                )
+            }
+        )
     }
 
     // Site Section

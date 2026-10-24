@@ -65,6 +65,7 @@ enum MainMenuActionType: ActionType {
     case tapEditBookmark
     case tapZoom
     case tapToggleNightMode
+    case tapToggleProxy
     case tapAddToShortcuts
     case tapRemoveFromShortcuts
     case updateSiteProtectionsHeader

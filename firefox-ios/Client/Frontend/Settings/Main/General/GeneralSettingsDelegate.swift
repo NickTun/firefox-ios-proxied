@@ -34,6 +34,9 @@ protocol GeneralSettingsDelegate: AnyObject {
     func pressedBrowsing()
 
     @MainActor
+    func pressedProxy()
+
+    @MainActor
     func pressedQuickAnswers()
 
     @MainActor

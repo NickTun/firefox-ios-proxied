@@ -171,6 +171,8 @@ class AppDelegate: UIResponder,
             }
         }
 
+        ProxyManager.applyPersistedSettings(profile: profile)
+
         logger.log("didFinishLaunchingWithOptions end",
                    level: .info,
                    category: .lifecycle)

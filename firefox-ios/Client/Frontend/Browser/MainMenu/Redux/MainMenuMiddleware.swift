@@ -101,7 +101,17 @@ final class MainMenuMiddleware {
         case MainMenuActionType.tapToggleNightMode:
             handleTapToggleWebSiteDarkModeAction(action: action, isHomepage: isHomepage)
 
+        case MainMenuActionType.tapToggleProxy:
+            handleTapToggleProxyAction()
+
         default: break
+        }
+    }
+
+    private func handleTapToggleProxyAction() {
+        let profile: Profile = AppContainer.shared.resolve()
+        Task { @MainActor in
+            await ProxyManager.shared.toggle(profile: profile)
         }
     }
 

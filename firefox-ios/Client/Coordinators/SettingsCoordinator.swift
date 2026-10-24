@@ -482,6 +482,11 @@ final class SettingsCoordinator: BaseCoordinator,
         router.push(viewController)
     }
 
+    func pressedProxy() {
+        let viewController = ProxySettingsViewController(profile: profile, windowUUID: windowUUID)
+        router.push(viewController)
+    }
+
     func pressedQuickAnswers() {
         let viewController = QuickAnswersSettingsViewController(
             prefs: profile.prefs,

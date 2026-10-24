@@ -371,7 +371,20 @@ class AppSettingsTableViewController: SettingsTableViewController,
 
     private func getGeneralSettings() -> [SettingSection] {
         var generalSettings: [Setting] = [
-            BrowsingSetting(settings: self, settingsDelegate: parentCoordinator),
+            BrowsingSetting(settings: self, settingsDelegate: parentCoordinator)
+        ]
+
+        if let profile {
+            generalSettings.append(
+                ProxySetting(
+                    profile: profile,
+                    settingsDelegate: parentCoordinator,
+                    theme: currentTheme()
+                )
+            )
+        }
+
+        generalSettings += [
             SearchSetting(
                 settingsDelegate: parentCoordinator,
                 searchEnginesManager: searchEnginesManager,
