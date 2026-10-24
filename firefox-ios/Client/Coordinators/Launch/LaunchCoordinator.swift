@@ -178,6 +178,15 @@ final class LaunchCoordinator: BaseCoordinator,
         ).getOnboardingModel(
             for: .freshInstall
         )
+
+        // Without Nimbus configuration there are no cards to show, and the flow would present an empty
+        // screen whose skip button cannot complete it. Finish onboarding instead of dead-ending the launch.
+        guard !onboardingModel.cards.isEmpty else {
+            manager.didSeeIntroScreen()
+            parentCoordinator?.didFinishLaunch(from: self)
+            return
+        }
+
         let activityEventHelper = ActivityEventHelper()
         let onboardingReason: OnboardingReason = manager.shouldShowIntroScreen ? .newUser : .showTour
         let telemetryUtility = OnboardingTelemetryUtility(
