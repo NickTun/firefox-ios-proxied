@@ -1364,7 +1364,12 @@ final class TabManagerImplementation: NSObject,
               scheme == "http" || scheme == "https"
         else { return false }
 
-        let desired = tab.proxyRouteOverride ?? await ProxyRoutingService.shared.route(for: url)
+        let desired: ProxyRoute
+        if let override = tab.proxyRouteOverride {
+            desired = override
+        } else {
+            desired = await ProxyRoutingService.shared.route(for: url)
+        }
         tab.desiredProxyRoute = desired
         guard desired != tab.proxyRoute else { return false }
         return await applyProxyRoute(desired, to: tab, url: url)
