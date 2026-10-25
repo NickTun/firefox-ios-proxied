@@ -70,6 +70,45 @@ final class CountryCIDRRangesTests: XCTestCase {
     }
 }
 
+final class IPv6RoutingTests: XCTestCase {
+    func testParsesCompressedAndEmbeddedForms() {
+        XCTAssertEqual(IPv6Address("::1"), IPv6Address(high: 0, low: 1))
+        XCTAssertEqual(IPv6Address("2001:db8::"), IPv6Address(high: 0x2001_0db8_0000_0000, low: 0))
+        XCTAssertEqual(IPv6Address("::ffff:192.168.1.1"), IPv6Address(high: 0, low: 0xffff_c0a8_0101))
+        XCTAssertEqual(IPv6Address("2001:db8:0:0:1:0:0:1"),
+                       IPv6Address(high: 0x2001_0db8_0000_0000, low: 0x0001_0000_0000_0001))
+        XCTAssertNil(IPv6Address("2001:db8:::1"))
+        XCTAssertNil(IPv6Address("2001:db8:::zz"))
+        XCTAssertNil(IPv6Address("1.2.3.4"))
+    }
+
+    func testMatchesIPv6Ranges() {
+        let subject = CountryCIDRRanges(countryCode: "de", cidrText: """
+        2a00:1158::/32
+        2001:db8::/32
+        invalid
+        """)
+
+        XCTAssertEqual(subject.ipv6RangeCount, 2)
+        XCTAssertTrue(subject.contains(ipv6: IPv6Address("2a00:1158::1")!))
+        XCTAssertTrue(subject.contains(ipv6: IPv6Address("2a00:1158:ffff::1")!))
+        XCTAssertFalse(subject.contains(ipv6: IPv6Address("2a00:1159::1")!))
+        XCTAssertFalse(subject.contains(ipv6: IPv6Address("2001:db9::1")!))
+    }
+
+    func testMixedFamiliesInOneCountry() {
+        let subject = CountryCIDRRanges(countryCode: "DE", cidrTexts: [
+            "2.28.0.0/14",
+            "2a00:1158::/32"
+        ])
+
+        XCTAssertEqual(subject.ipv4RangeCount, 1)
+        XCTAssertEqual(subject.ipv6RangeCount, 1)
+        XCTAssertTrue(subject.contains(ipv4: CountryCIDRRanges.parseIPv4("2.28.1.1")!))
+        XCTAssertTrue(subject.contains(ipv6: IPv6Address("2a00:1158::1")!))
+    }
+}
+
 final class ProxyRoutingRulesTests: XCTestCase {
     private let germanRange = CountryCIDRRanges(countryCode: "DE", cidrs: ["2.28.0.0/14"])
     private let ipInGermany = CountryCIDRRanges.parseIPv4("2.28.1.1")!
@@ -110,6 +149,21 @@ final class ProxyRoutingRulesTests: XCTestCase {
         XCTAssertEqual(subject.route(forHost: "example.com", ipv4: ipInGermany), .direct)
         XCTAssertEqual(subject.route(forHost: "example.com", ipv4: CountryCIDRRanges.parseIPv4("8.8.8.8")),
                        .proxied)
+    }
+
+    func testIPv6GeoIPBypass() {
+        let ranges = CountryCIDRRanges(countryCode: "DE", cidrs: ["2a00:1158::/32"])
+        let subject = ProxyRoutingRules(mode: .rules, countryRanges: [ranges])
+
+        XCTAssertEqual(
+            subject.route(forHost: "example.de", ipv4: nil, ipv6: IPv6Address("2a00:1158::1")),
+            .direct
+        )
+        XCTAssertEqual(
+            subject.route(forHost: "example.de", ipv4: nil, ipv6: IPv6Address("2a00:1159::1")),
+            .proxied
+        )
+        XCTAssertEqual(subject.matchingCountry(ipv4: nil, ipv6: IPv6Address("2a00:1158::1")), "DE")
     }
 
     func testResolutionNeededOnlyInRulesMode() {

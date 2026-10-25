@@ -25,7 +25,7 @@ public struct ProxyRoutingRules: Sendable, Equatable {
         self.countryRanges = countryRanges
     }
 
-    public func route(forHost host: String, ipv4: UInt32?) -> ProxyRoute {
+    public func route(forHost host: String, ipv4: UInt32?, ipv6: IPv6Address? = nil) -> ProxyRoute {
         switch mode {
         case .allTraffic:
             return .proxied
@@ -37,11 +37,21 @@ public struct ProxyRoutingRules: Sendable, Equatable {
             if bypassDomains.matches(host) {
                 return .direct
             }
-            if let ipv4, countryRanges.contains(where: { $0.contains(ipv4: ipv4) }) {
+            if matchingCountry(ipv4: ipv4, ipv6: ipv6) != nil {
                 return .direct
             }
             return .proxied
         }
+    }
+
+    public func matchingCountry(ipv4: UInt32?, ipv6: IPv6Address?) -> String? {
+        if let ipv4, let match = countryRanges.first(where: { $0.contains(ipv4: ipv4) }) {
+            return match.countryCode
+        }
+        if let ipv6, let match = countryRanges.first(where: { $0.contains(ipv6: ipv6) }) {
+            return match.countryCode
+        }
+        return nil
     }
 
     /// Whether a route decision can be made without resolving the host name.

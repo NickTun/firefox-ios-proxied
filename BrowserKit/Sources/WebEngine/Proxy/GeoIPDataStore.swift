@@ -23,7 +23,8 @@ public actor GeoIPDataStore {
         }
     }
 
-    private static let urlTemplate = "https://raw.githubusercontent.com/ipverse/rir-ip/master/country/%@/ipv4-aggregated.txt"
+    private static let ipv4URLTemplate = "https://raw.githubusercontent.com/ipverse/rir-ip/master/country/%@/ipv4-aggregated.txt"
+    private static let ipv6URLTemplate = "https://raw.githubusercontent.com/ipverse/rir-ip/master/country/%@/ipv6-aggregated.txt"
 
     private let directory: URL
     private var rangesCache: [String: CountryCIDRRanges] = [:]
@@ -54,6 +55,7 @@ public actor GeoIPDataStore {
         return files
             .filter { $0.pathExtension == "cidr" }
             .map { $0.deletingPathExtension().lastPathComponent.uppercased() }
+            .filter { !$0.hasSuffix("-V6") }
             .sorted()
     }
 
@@ -62,15 +64,17 @@ public actor GeoIPDataStore {
         if let cached = rangesCache[code] {
             return cached
         }
-        let url = fileURL(for: code)
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-        let ranges = CountryCIDRRanges(countryCode: code, cidrText: text)
+        let ipv4URL = fileURL(for: code, family: .ipv4)
+        guard let ipv4Text = try? String(contentsOf: ipv4URL, encoding: .utf8) else { return nil }
+        let ipv6Text = try? String(contentsOf: fileURL(for: code, family: .ipv6), encoding: .utf8)
+        let ranges = CountryCIDRRanges(countryCode: code,
+                                       cidrTexts: [ipv4Text, ipv6Text ?? ""])
         rangesCache[code] = ranges
         return ranges
     }
 
     public func hasData(for countryCode: String) -> Bool {
-        return FileManager.default.fileExists(atPath: fileURL(for: countryCode.uppercased()).path)
+        return FileManager.default.fileExists(atPath: fileURL(for: countryCode.uppercased(), family: .ipv4).path)
     }
 
     /// Downloads the ranges for the given countries, replacing the cached copies.
@@ -80,7 +84,9 @@ public actor GeoIPDataStore {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() }
             .filter { $0.count == 2 }
         for code in Set(codes) {
-            try await download(countryCode: code)
+            try await download(countryCode: code, family: .ipv4)
+            // IPv6 is best effort: not every country has a dedicated list.
+            try? await download(countryCode: code, family: .ipv6)
         }
         return Date()
     }
@@ -88,17 +94,37 @@ public actor GeoIPDataStore {
     public func remove(countryCode: String) {
         let code = countryCode.uppercased()
         rangesCache[code] = nil
-        try? FileManager.default.removeItem(at: fileURL(for: code))
+        try? FileManager.default.removeItem(at: fileURL(for: code, family: .ipv4))
+        try? FileManager.default.removeItem(at: fileURL(for: code, family: .ipv6))
     }
 
     // MARK: - Private
 
-    private func fileURL(for countryCode: String) -> URL {
-        return directory.appendingPathComponent("\(countryCode).cidr")
+    private enum AddressFamily {
+        case ipv4
+        case ipv6
+
+        var fileSuffix: String {
+            switch self {
+            case .ipv4: return ""
+            case .ipv6: return "-v6"
+            }
+        }
+
+        var urlTemplate: String {
+            switch self {
+            case .ipv4: return GeoIPDataStore.ipv4URLTemplate
+            case .ipv6: return GeoIPDataStore.ipv6URLTemplate
+            }
+        }
     }
 
-    private func download(countryCode: String) async throws {
-        guard let url = URL(string: String(format: GeoIPDataStore.urlTemplate, countryCode.lowercased())) else {
+    private func fileURL(for countryCode: String, family: AddressFamily) -> URL {
+        return directory.appendingPathComponent("\(countryCode)\(family.fileSuffix).cidr")
+    }
+
+    private func download(countryCode: String, family: AddressFamily) async throws {
+        guard let url = URL(string: String(format: family.urlTemplate, countryCode.lowercased())) else {
             throw DownloadError(countryCode: countryCode, statusCode: nil)
         }
         let (data, response) = try await URLSession.shared.data(from: url)
@@ -108,7 +134,7 @@ public actor GeoIPDataStore {
         guard !data.isEmpty else {
             throw DownloadError(countryCode: countryCode, statusCode: nil)
         }
-        try data.write(to: fileURL(for: countryCode), options: .atomic)
+        try data.write(to: fileURL(for: countryCode, family: family), options: .atomic)
         rangesCache[countryCode] = nil
     }
 }

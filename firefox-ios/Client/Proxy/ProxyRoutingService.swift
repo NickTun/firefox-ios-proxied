@@ -10,8 +10,8 @@ import WebEngine
 /// Decides the proxy route for a URL using the persisted rules.
 ///
 /// Domain rules are evaluated synchronously so a route is always available when a web view is
-/// created. GeoIP needs a DNS lookup, so it is resolved asynchronously and cached per host; the
-/// tab is re-routed afterwards if the resolved route differs from the one it was created with.
+/// created. GeoIP needs DNS, so addresses are resolved asynchronously and cached per host; the tab
+/// is re-routed afterwards if the resolved route differs from the one it was created with.
 @MainActor
 final class ProxyRoutingService {
     static let shared = ProxyRoutingService()
@@ -21,6 +21,7 @@ final class ProxyRoutingService {
     private var rulesCache: ProxyRoutingRules?
     private var routeCache: [String: ProxyRoute] = [:]
     private var resolvedAddresses: [String: UInt32] = [:]
+    private var resolvedIPv6Addresses: [String: IPv6Address] = [:]
 
     init(profile: Profile = AppContainer.shared.resolve(),
          logger: Logger = DefaultLogger.shared) {
@@ -37,6 +38,7 @@ final class ProxyRoutingService {
         rulesCache = nil
         routeCache.removeAll()
         resolvedAddresses.removeAll()
+        resolvedIPv6Addresses.removeAll()
     }
 
     /// Route used when no host is known yet. Proxying is the safe default.
@@ -58,9 +60,10 @@ final class ProxyRoutingService {
         }
 
         let rules = rulesCache ?? domainOnlyRules()
-        let address = resolvedAddresses[host]
-        let route = rules.route(forHost: host, ipv4: address)
-        if !isProvisional(host: host, address: address) {
+        let ipv4 = resolvedAddresses[host]
+        let ipv6 = resolvedIPv6Addresses[host]
+        let route = rules.route(forHost: host, ipv4: ipv4, ipv6: ipv6)
+        if !isProvisional(host: host, ipv4: ipv4, ipv6: ipv6) {
             routeCache[host] = route
         }
         return route
@@ -76,33 +79,61 @@ final class ProxyRoutingService {
         }
 
         let rules = await loadedRules()
-        var address = resolvedAddresses[host]
-        if address == nil, rules.requiresResolution(forHost: host) {
-            address = await Self.resolveIPv4(host: host)
-            if let address {
-                resolvedAddresses[host] = address
+        var ipv4 = resolvedAddresses[host]
+        var ipv6 = resolvedIPv6Addresses[host]
+        if ipv4 == nil, ipv6 == nil, rules.requiresResolution(forHost: host) {
+            ipv4 = await Self.resolveIPv4(host: host)
+            ipv6 = await Self.resolveIPv6(host: host)
+            if let ipv4 {
+                resolvedAddresses[host] = ipv4
+            }
+            if let ipv6 {
+                resolvedIPv6Addresses[host] = ipv6
             }
         }
-        let route = rules.route(forHost: host, ipv4: address)
-        if !isProvisional(host: host, address: address) {
+        let route = rules.route(forHost: host, ipv4: ipv4, ipv6: ipv6)
+        if !isProvisional(host: host, ipv4: ipv4, ipv6: ipv6) {
             routeCache[host] = route
-            logger.log("Proxy route \(route.rawValue) for \(host)",
-                       level: .debug,
-                       category: .webview)
+            logger.log("Proxy route \(route.rawValue) for \(host)", level: .debug, category: .webview)
         }
         return route
     }
 
-    /// Whether the route may change once the host has been resolved.
-    private func isProvisional(host: String, address: UInt32?) -> Bool {
-        guard address == nil else { return false }
-        return needsGeoIPLookup(host: host)
-    }
+    // MARK: - Diagnostics
 
-    private func needsGeoIPLookup(host: String) -> Bool {
+    /// Human readable snapshot of how the current configuration evaluates `url`, shown in settings
+    /// so routing problems can be diagnosed without a debugger.
+    func diagnostics(for url: URL?, tabRoute: ProxyRoute?) async -> String {
         let settings = self.settings
-        guard settings.routingMode == .rules, !settings.countries.isEmpty else { return false }
-        return !settings.proxyExceptions.matches(host) && !settings.bypassDomains.matches(host)
+        let rules = await loadedRules()
+        var lines: [String] = []
+
+        lines.append("Proxy enabled: \(settings.isEnabled ? "yes" : "no")")
+        lines.append("iOS 17+ supported: \(ProxyManager.isSupported ? "yes" : "no")")
+        lines.append("Mode: \(settings.routingMode.rawValue)")
+        let countries = settings.countries
+        lines.append("Countries selected: \(countries.isEmpty ? "none" : countries.joined(separator: ", "))")
+        let ranges = rules.countryRanges
+            .map { "\($0.countryCode) v4:\($0.ipv4RangeCount) v6:\($0.ipv6RangeCount)" }
+        lines.append("Loaded ranges: \(ranges.isEmpty ? "none" : ranges.joined(separator: "; "))")
+
+        guard let url, let host = normalizedHost(for: url) else {
+            lines.append("Tab URL: none (open an http(s) page and check again)")
+            return lines.joined(separator: "\n")
+        }
+
+        lines.append("Tab URL: \(url.absoluteString)")
+        lines.append("Host: \(host)")
+        let ipv4 = await Self.resolveIPv4(host: host)
+        let ipv6 = await Self.resolveIPv6(host: host)
+        lines.append("IPv4: \(ipv4.map(Self.formatIPv4) ?? "none")")
+        lines.append("IPv6: \(ipv6?.displayName ?? "none")")
+        lines.append("Bypass list match: \(rules.bypassDomains.matches(host) ? "yes" : "no")")
+        lines.append("Exception list match: \(rules.proxyExceptions.matches(host) ? "yes" : "no")")
+        lines.append("Country match: \(rules.matchingCountry(ipv4: ipv4, ipv6: ipv6) ?? "none")")
+        lines.append("Computed route: \(rules.route(forHost: host, ipv4: ipv4, ipv6: ipv6).rawValue)")
+        lines.append("Tab route: \(tabRoute?.rawValue ?? "unknown")")
+        return lines.joined(separator: "\n")
     }
 
     // MARK: - Rules
@@ -134,6 +165,17 @@ final class ProxyRoutingService {
                                  countryRanges: [])
     }
 
+    private func isProvisional(host: String, ipv4: UInt32?, ipv6: IPv6Address?) -> Bool {
+        guard ipv4 == nil, ipv6 == nil else { return false }
+        return needsGeoIPLookup(host: host)
+    }
+
+    private func needsGeoIPLookup(host: String) -> Bool {
+        let settings = self.settings
+        guard settings.routingMode == .rules, !settings.countries.isEmpty else { return false }
+        return !settings.proxyExceptions.matches(host) && !settings.bypassDomains.matches(host)
+    }
+
     private func isWebURL(_ url: URL?) -> Bool {
         guard let scheme = url?.scheme?.lowercased() else { return false }
         return scheme == "http" || scheme == "https"
@@ -147,6 +189,12 @@ final class ProxyRoutingService {
     }
 
     // MARK: - DNS
+
+    private static func formatIPv4(_ address: UInt32) -> String {
+        return [24, 16, 8, 0]
+            .map { String((address >> UInt32($0)) & 0xFF) }
+            .joined(separator: ".")
+    }
 
     private nonisolated static func resolveIPv4(host: String) async -> UInt32? {
         return await withCheckedContinuation { continuation in
@@ -170,6 +218,43 @@ final class ProxyRoutingService {
                     UInt32(bigEndian: pointer.pointee.sin_addr.s_addr)
                 }
                 continuation.resume(returning: ipv4)
+            }
+        }
+    }
+
+    private nonisolated static func resolveIPv6(host: String) async -> IPv6Address? {
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                var hints = addrinfo()
+                hints.ai_family = AF_INET6
+                hints.ai_socktype = SOCK_STREAM
+                hints.ai_flags = AI_ADDRCONFIG
+                var result: UnsafeMutablePointer<addrinfo>?
+                let status = getaddrinfo(host, nil, &hints, &result)
+                defer {
+                    if result != nil {
+                        freeaddrinfo(result)
+                    }
+                }
+                guard status == 0, let address = result?.pointee.ai_addr else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                let ipv6: IPv6Address? = address.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { pointer in
+                    withUnsafeBytes(of: pointer.pointee.sin6_addr) { raw in
+                        guard raw.count >= 16 else { return nil }
+                        var high: UInt64 = 0
+                        var low: UInt64 = 0
+                        for index in 0..<8 {
+                            high = (high << 8) | UInt64(raw[index])
+                        }
+                        for index in 8..<16 {
+                            low = (low << 8) | UInt64(raw[index])
+                        }
+                        return IPv6Address(high: high, low: low)
+                    }
+                }
+                continuation.resume(returning: ipv6)
             }
         }
     }

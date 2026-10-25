@@ -30,7 +30,8 @@ final class ProxySettingsViewController: SettingsTableViewController {
             connectionSection(profile: profile, settings: settings),
             routingSection(settings: settings),
             geoIPSection(profile: profile, settings: settings),
-            domainsSection(profile: profile, settings: settings)
+            domainsSection(profile: profile, settings: settings),
+            diagnosticsSection()
         ]
     }
 
@@ -191,7 +192,45 @@ final class ProxySettingsViewController: SettingsTableViewController {
         )
     }
 
+    private func diagnosticsSection() -> SettingSection {
+        let diagnose = ClosureSetting(
+            title: "Diagnose current tab",
+            statusText: "Rules, DNS and the computed route",
+            showsDisclosure: false,
+            handler: { [weak self] _ in self?.presentDiagnostics() }
+        )
+        diagnose.enabled = ProxyManager.isSupported
+
+        return SettingSection(
+            footerTitle: NSAttributedString(
+                string: "Shows what the router decides for the page in the current tab."
+            ),
+            children: [diagnose]
+        )
+    }
+
     // MARK: - Actions
+
+    private func presentDiagnostics() {
+        guard profile != nil else { return }
+        let windowManager: WindowManager = AppContainer.shared.resolve()
+        let tab = windowManager.tabManager(for: windowUUID)?.selectedTab
+        let url = tab?.url
+        let tabRoute = tab?.proxyRoute
+        Task { @MainActor in
+            let text = await ProxyRoutingService.shared.diagnostics(for: url, tabRoute: tabRoute)
+            self.presentDiagnosticsAlert(text)
+        }
+    }
+
+    private func presentDiagnosticsAlert(_ text: String) {
+        let alert = UIAlertController(title: "Proxy diagnostics", message: text, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Copy", style: .default) { _ in
+            UIPasteboard.general.string = text
+        })
+        alert.addAction(UIAlertAction(title: "Close", style: .cancel))
+        present(alert, animated: true)
+    }
 
     private func presentRoutingModePicker() {
         guard profile != nil else { return }
