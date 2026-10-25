@@ -570,6 +570,42 @@ extension BrowserViewController: WKNavigationDelegate {
             return
         }
 
+        // Resolve the proxy route before the request is sent. Rebuilding a tab mid-navigation breaks
+        // redirects and one-time URLs, and a site reached through the wrong route may not load at all.
+        let isMainFrameWebURL = navigationAction.targetFrame?.isMainFrame == true
+            && ["http", "https"].contains(url.scheme?.lowercased() ?? "")
+        if isMainFrameWebURL, tabManager.shouldPreflightProxyRoute(tab: tab, url: url) {
+            let handler = decisionHandler
+            Task { @MainActor in
+                if let route = await self.tabManager.resolvedProxyRoute(tab: tab, url: url) {
+                    handler(.cancel)
+                    await self.tabManager.applyProxyRoute(tab: tab, route: route, url: url)
+                } else {
+                    self.handleNavigationAction(navigationAction,
+                                                url: url,
+                                                tab: tab,
+                                                webView: webView,
+                                                decisionHandler: handler)
+                }
+            }
+            return
+        }
+
+        handleNavigationAction(navigationAction,
+                               url: url,
+                               tab: tab,
+                               webView: webView,
+                               decisionHandler: decisionHandler)
+    }
+
+    @MainActor
+    private func handleNavigationAction(
+        _ navigationAction: WKNavigationAction,
+        url: URL,
+        tab: Tab,
+        webView: WKWebView,
+        decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
+    ) {
         if tab == tabManager.selectedTab,
            navigationAction.navigationType == .linkActivated,
            !tab.adsTelemetryUrlList.isEmpty {

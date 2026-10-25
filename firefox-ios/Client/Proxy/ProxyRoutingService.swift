@@ -41,6 +41,12 @@ final class ProxyRoutingService {
         resolvedIPv6Addresses.removeAll()
     }
 
+    /// Whether a final route decision for the URL is already cached.
+    func hasResolvedRoute(for url: URL?) -> Bool {
+        guard let host = normalizedHost(for: url), isWebURL(url) else { return false }
+        return routeCache[host] != nil
+    }
+
     /// Route used when no host is known yet. Proxying is the safe default.
     var defaultRoute: ProxyRoute {
         guard ProxyManager.isSupported, settings.isEnabled else { return .direct }

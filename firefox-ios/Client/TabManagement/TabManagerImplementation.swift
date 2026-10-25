@@ -1386,7 +1386,39 @@ final class TabManagerImplementation: NSObject,
         _ = await rerouteTabIfNeeded(tab: tab, url: url)
     }
 
-    private func applyProxyRoute(_ route: ProxyRoute, to tab: Tab, url: URL) async -> Bool {
+    func shouldPreflightProxyRoute(tab: Tab, url: URL) -> Bool {
+        guard ProxyManager.isSupported,
+              ProxySettings(prefs: profile.prefs).isEnabled,
+              tab === selectedTab,
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https"
+        else { return false }
+
+        let settings = ProxySettings(prefs: profile.prefs)
+        if tab.proxyRouteOverride != nil {
+            return true
+        }
+        guard settings.routingMode == .rules else { return false }
+        if ProxyRoutingService.shared.cachedRoute(for: url) != tab.proxyRoute {
+            return true
+        }
+        return !ProxyRoutingService.shared.hasResolvedRoute(for: url)
+    }
+
+    func resolvedProxyRoute(tab: Tab, url: URL) async -> ProxyRoute? {
+        guard tab === selectedTab else { return nil }
+        if let override = tab.proxyRouteOverride {
+            return override != tab.proxyRoute ? override : nil
+        }
+        let route = await ProxyRoutingService.shared.route(for: url)
+        return route != tab.proxyRoute ? route : nil
+    }
+
+    func applyProxyRoute(tab: Tab, route: ProxyRoute, url: URL) async {
+        _ = await applyProxyRoute(route, to: tab, url: url, force: true)
+    }
+
+    private func applyProxyRoute(_ route: ProxyRoute, to tab: Tab, url: URL, force: Bool = false) async -> Bool {
         guard !tab.isReroutingProxyRoute else { return false }
         if let last = tab.lastProxyRerouteAt, Date().timeIntervalSince(last) < 2 {
             // A site that keeps bouncing between routes would otherwise reload in a loop.
@@ -1398,7 +1430,7 @@ final class TabManagerImplementation: NSObject,
         logger.log("Re-routing tab to \(route.rawValue) for \(url.host ?? "")",
                    level: .info,
                    category: .tabs)
-        guard tab === selectedTab else { return false }
+        guard force || tab === selectedTab else { return false }
 
         tab.isReroutingProxyRoute = true
         tab.lastProxyRerouteAt = Date()

@@ -207,4 +207,14 @@ class MockTabManager: TabManager {
 
     func setProxyRouteOverride(_ override: ProxyRoute?, for tab: Tab) async {}
 
+    func shouldPreflightProxyRoute(tab: Tab, url: URL) -> Bool {
+        return false
+    }
+
+    func resolvedProxyRoute(tab: Tab, url: URL) async -> ProxyRoute? {
+        return nil
+    }
+
+    func applyProxyRoute(tab: Tab, route: ProxyRoute, url: URL) async {}
+
 }
