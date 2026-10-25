@@ -163,7 +163,59 @@ final class ProxyRoutingRulesTests: XCTestCase {
             subject.route(forHost: "example.de", ipv4: nil, ipv6: IPv6Address("2a00:1159::1")),
             .proxied
         )
-        XCTAssertEqual(subject.matchingCountry(ipv4: nil, ipv6: IPv6Address("2a00:1158::1")), "DE")
+        let match = subject.matchingCountry(host: "example.de",
+                                            ipv4: nil,
+                                            ipv6: IPv6Address("2a00:1158::1"))
+        XCTAssertEqual(match?.countryCode, "DE")
+        XCTAssertEqual(match?.source, .address)
+    }
+
+    func testLocalAddressesAreDirect() {
+        let subject = ProxyRoutingRules(mode: .rules, countryRanges: [germanRange])
+
+        XCTAssertEqual(subject.route(forHost: "ya.ru", ipv4: CountryCIDRRanges.parseIPv4("172.19.0.19")),
+                       .direct)
+        XCTAssertEqual(subject.route(forHost: "router.lan",
+                                     ipv4: CountryCIDRRanges.parseIPv4("192.168.1.1")),
+                       .direct)
+        XCTAssertEqual(subject.route(forHost: "nas.local",
+                                     ipv4: CountryCIDRRanges.parseIPv4("10.0.0.5")),
+                       .direct)
+        XCTAssertEqual(subject.route(forHost: "example.com",
+                                     ipv4: CountryCIDRRanges.parseIPv4("8.8.8.8")),
+                       .proxied)
+    }
+
+    func testLocalIPv6IsDirect() {
+        let subject = ProxyRoutingRules(mode: .rules, countryRanges: [germanRange])
+
+        XCTAssertEqual(subject.route(forHost: "device.lan", ipv4: nil, ipv6: IPv6Address("fe80::1")),
+                       .direct)
+        XCTAssertEqual(subject.route(forHost: "device.lan", ipv4: nil, ipv6: IPv6Address("fd00::1")),
+                       .direct)
+        XCTAssertEqual(subject.route(forHost: "example.com", ipv4: nil, ipv6: IPv6Address("2a00:1158::1")),
+                       .proxied)
+    }
+
+    func testCountryTLDMatchesSelectedCountry() {
+        let subject = ProxyRoutingRules(mode: .rules,
+                                        countryRanges: [germanRange],
+                                        selectedCountryCodes: ["RU"])
+
+        XCTAssertEqual(subject.route(forHost: "ya.ru", ipv4: nil), .direct)
+        XCTAssertEqual(subject.route(forHost: "example.ru", ipv4: nil), .direct)
+        XCTAssertEqual(subject.route(forHost: "example.рф", ipv4: nil), .direct)
+        XCTAssertEqual(subject.route(forHost: "example.su", ipv4: nil), .direct)
+        XCTAssertEqual(subject.route(forHost: "example.com", ipv4: nil), .proxied)
+        XCTAssertEqual(subject.route(forHost: "example.de", ipv4: nil), .proxied)
+        XCTAssertFalse(subject.requiresResolution(forHost: "ya.ru"))
+    }
+
+    func testCountryTLDRequiresSelectedCountry() {
+        let subject = ProxyRoutingRules(mode: .rules, selectedCountryCodes: ["DE"])
+
+        XCTAssertEqual(subject.route(forHost: "ya.ru", ipv4: nil), .proxied)
+        XCTAssertEqual(subject.route(forHost: "example.de", ipv4: nil), .direct)
     }
 
     func testResolutionNeededOnlyInRulesMode() {

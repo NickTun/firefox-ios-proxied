@@ -86,8 +86,9 @@ final class ProxySettingsViewController: SettingsTableViewController {
         return SettingSection(
             footerTitle: NSAttributedString(
                 string: "Every tab goes through the proxy by default. With bypass rules a tab is loaded " +
-                        "directly when its site matches the bypass domains or a selected country, unless " +
-                        "the domain is listed as a proxy exception."
+                        "directly when its site resolves to a local or fake-IP address, belongs to a " +
+                        "selected country, or matches the bypass domains, unless the domain is listed " +
+                        "as a proxy exception."
             ),
             children: [mode]
         )
@@ -128,9 +129,9 @@ final class ProxySettingsViewController: SettingsTableViewController {
 
         return SettingSection(
             footerTitle: NSAttributedString(
-                string: "Sites whose IPv4 address belongs to a selected country are loaded directly. " +
-                        "Data is downloaded when a country is selected. IPv6 is not matched and stays " +
-                        "on the proxy."
+                string: "Sites in a selected country are loaded directly. The country is matched by " +
+                        "IPv4/IPv6 address or by the country domain (.ru, .de and so on). Data is " +
+                        "downloaded when a country is selected."
             ),
             children: [countriesSetting, update]
         )

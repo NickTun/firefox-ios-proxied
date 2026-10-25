@@ -39,8 +39,8 @@ final class ProxyCountrySelectionViewController: SettingsTableViewController {
         return [
             SettingSection(
                 footerTitle: NSAttributedString(
-                    string: "Sites whose IPv4 address belongs to a selected country are loaded directly. " +
-                            "Data is downloaded when a country is selected."
+                    string: "Sites in a selected country are loaded directly, matched by address or by " +
+                            "the country domain. Data is downloaded when a country is selected."
                 ),
                 children: rows
             )

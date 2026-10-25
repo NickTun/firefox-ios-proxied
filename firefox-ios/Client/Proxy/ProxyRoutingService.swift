@@ -126,11 +126,23 @@ final class ProxyRoutingService {
         lines.append("Host: \(host)")
         let ipv4 = await Self.resolveIPv4(host: host)
         let ipv6 = await Self.resolveIPv6(host: host)
-        lines.append("IPv4: \(ipv4.map(Self.formatIPv4) ?? "none")")
-        lines.append("IPv6: \(ipv6?.displayName ?? "none")")
+        if let ipv4 {
+            lines.append("IPv4: \(Self.formatIPv4(ipv4)) (\(IPAddressKind.kind(ipv4: ipv4).rawValue))")
+        } else {
+            lines.append("IPv4: none")
+        }
+        if let ipv6 {
+            lines.append("IPv6: \(ipv6.displayName) (\(IPAddressKind.kind(ipv6: ipv6).rawValue))")
+        } else {
+            lines.append("IPv6: none")
+        }
         lines.append("Bypass list match: \(rules.bypassDomains.matches(host) ? "yes" : "no")")
         lines.append("Exception list match: \(rules.proxyExceptions.matches(host) ? "yes" : "no")")
-        lines.append("Country match: \(rules.matchingCountry(ipv4: ipv4, ipv6: ipv6) ?? "none")")
+        if let match = rules.matchingCountry(host: host, ipv4: ipv4, ipv6: ipv6) {
+            lines.append("Country match: \(match.countryCode) (\(match.source.rawValue))")
+        } else {
+            lines.append("Country match: none")
+        }
         lines.append("Computed route: \(rules.route(forHost: host, ipv4: ipv4, ipv6: ipv6).rawValue)")
         lines.append("Tab route: \(tabRoute?.rawValue ?? "unknown")")
         return lines.joined(separator: "\n")
@@ -152,7 +164,8 @@ final class ProxyRoutingService {
         let rules = ProxyRoutingRules(mode: settings.routingMode,
                                       bypassDomains: settings.bypassDomains,
                                       proxyExceptions: settings.proxyExceptions,
-                                      countryRanges: ranges)
+                                      countryRanges: ranges,
+                                      selectedCountryCodes: Set(settings.countries))
         rulesCache = rules
         return rules
     }
@@ -162,7 +175,8 @@ final class ProxyRoutingService {
         return ProxyRoutingRules(mode: settings.routingMode,
                                  bypassDomains: settings.bypassDomains,
                                  proxyExceptions: settings.proxyExceptions,
-                                 countryRanges: [])
+                                 countryRanges: [],
+                                 selectedCountryCodes: Set(settings.countries))
     }
 
     private func isProvisional(host: String, ipv4: UInt32?, ipv6: IPv6Address?) -> Bool {
