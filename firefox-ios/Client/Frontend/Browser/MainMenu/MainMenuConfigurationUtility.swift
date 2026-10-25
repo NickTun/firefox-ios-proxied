@@ -245,11 +245,11 @@ struct MainMenuConfigurationUtility: Equatable, FeatureFlaggable {
         let override = tabInfo.proxyRouteOverride
         let summary: String
         switch override {
-        case nil:
+        case .none:
             summary = "Auto (routing rules)"
-        case .direct:
+        case .some(.direct):
             summary = "Direct, set manually"
-        case .proxied:
+        case .some(.proxied):
             summary = "Proxy, set manually"
         }
 

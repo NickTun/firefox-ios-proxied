@@ -120,9 +120,12 @@ final class MainMenuMiddleware {
 
         let next: ProxyRoute?
         switch tab.proxyRouteOverride {
-        case nil: next = .direct
-        case .direct: next = .proxied
-        case .proxied: next = nil
+        case .none:
+            next = .direct
+        case .some(.direct):
+            next = .proxied
+        case .some(.proxied):
+            next = nil
         }
         Task { @MainActor in
             await tabManager.setProxyRouteOverride(next, for: tab)
