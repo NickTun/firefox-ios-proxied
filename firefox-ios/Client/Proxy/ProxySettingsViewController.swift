@@ -30,6 +30,7 @@ final class ProxySettingsViewController: SettingsTableViewController {
             connectionSection(profile: profile, settings: settings),
             routingSection(settings: settings),
             geoIPSection(profile: profile, settings: settings),
+            dnsSection(profile: profile, settings: settings),
             domainsSection(profile: profile, settings: settings),
             diagnosticsSection()
         ]
@@ -135,6 +136,44 @@ final class ProxySettingsViewController: SettingsTableViewController {
                         "DNS-over-HTTPS (Cloudflare). Data is downloaded when a country is selected."
             ),
             children: [countriesSetting, update]
+        )
+    }
+
+    private func dnsSection(profile: Profile, settings: ProxySettings) -> SettingSection {
+        let toggle = BoolSetting(
+            prefs: profile.prefs,
+            theme: currentTheme(),
+            prefKey: ProxySettings.Key.dohEnabled,
+            defaultValue: false,
+            titleText: "Resolve GeoIP over DoH",
+            statusText: settings.isDoHEnabled ? "On" : "Off",
+            settingDidChange: { [weak self] _ in
+                Task { @MainActor in
+                    await ProxyManager.shared.reconfigureRouting()
+                    self?.refreshSettings()
+                }
+            }
+        )
+        toggle.enabled = ProxyManager.isSupported
+
+        let serverText = settings.dohServer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "Default (1.1.1.1)"
+            : settings.dohServer
+        let server = ClosureSetting(
+            title: "DoH server",
+            statusText: serverText,
+            handler: { [weak self] _ in self?.presentDoHServerEditor() }
+        )
+        server.enabled = ProxyManager.isSupported && settings.isDoHEnabled
+
+        return SettingSection(
+            footerTitle: NSAttributedString(
+                string: "Only needed when the system DNS answers with fake-IP addresses " +
+                        "(Mihomo/Clash fake-IP mode, some local resolvers). The server must speak " +
+                        "DNS-over-HTTPS (RFC 8484), for example https://1.1.1.1/dns-query. " +
+                        "Off by default; without it countries are matched by domain only."
+            ),
+            children: [toggle, server]
         )
     }
 
@@ -277,6 +316,44 @@ final class ProxySettingsViewController: SettingsTableViewController {
                 presentError("Could not update GeoIP data: \(error)")
             }
             self.isUpdatingGeoIP = false
+            await ProxyManager.shared.reconfigureRouting()
+            self.refreshSettings()
+        }
+    }
+
+    private func presentDoHServerEditor() {
+        guard let profile else { return }
+        let settings = ProxySettings(prefs: profile.prefs)
+        let alert = UIAlertController(
+            title: "DoH server",
+            message: "DNS-over-HTTPS endpoint. Leave empty for the default.",
+            preferredStyle: .alert
+        )
+        alert.addTextField { field in
+            field.placeholder = "https://1.1.1.1/dns-query"
+            field.text = settings.dohServer
+            field.keyboardType = .URL
+            field.autocapitalizationType = .none
+            field.autocorrectionType = .no
+            field.clearButtonMode = .whileEditing
+            field.accessibilityIdentifier = "ProxySettings.dohServer"
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak self, weak alert] _ in
+            let text = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            self?.saveDoHServer(text)
+        })
+        present(alert, animated: true)
+    }
+
+    private func saveDoHServer(_ text: String) {
+        guard let profile else { return }
+        if !text.isEmpty, DoHResolver.endpoint(from: text) == nil {
+            presentError("Enter a valid HTTPS address, for example https://1.1.1.1/dns-query.")
+            return
+        }
+        ProxySettings(prefs: profile.prefs).update(dohServer: text)
+        Task { @MainActor in
             await ProxyManager.shared.reconfigureRouting()
             self.refreshSettings()
         }

@@ -17,6 +17,8 @@ struct ProxySettings {
         static let proxyExceptions = "proxy.proxyExceptions"
         static let countries = "proxy.countries"
         static let geoIPUpdatedAt = "proxy.geoipUpdatedAt"
+        static let dohEnabled = "proxy.dohEnabled"
+        static let dohServer = "proxy.dohServer"
     }
 
     private let prefs: Prefs
@@ -117,5 +119,28 @@ struct ProxySettings {
 
     func update(geoIPUpdatedAt date: Date) {
         prefs.setLong(Int64(date.timeIntervalSince1970), forKey: Key.geoIPUpdatedAt)
+    }
+
+    // MARK: - DoH
+
+    /// Off by default: only needed when the system DNS answers with fake-IP addresses.
+    var isDoHEnabled: Bool {
+        get { return prefs.boolForKey(Key.dohEnabled) ?? false }
+        nonmutating set { prefs.setBool(newValue, forKey: Key.dohEnabled) }
+    }
+
+    var dohServer: String {
+        return prefs.stringForKey(Key.dohServer) ?? ""
+    }
+
+    func update(dohServer: String) {
+        prefs.setString(dohServer, forKey: Key.dohServer)
+    }
+
+    var dohEndpoint: URL? {
+        guard isDoHEnabled else { return nil }
+        let text = dohServer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return DoHResolver.defaultEndpoint }
+        return DoHResolver.endpoint(from: text)
     }
 }

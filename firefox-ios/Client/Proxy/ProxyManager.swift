@@ -64,6 +64,7 @@ final class ProxyManager {
     /// Rebuilds every web view after the routing rules changed, so tabs pick up their new route.
     func reconfigureRouting() async {
         ProxyRoutingService.shared.invalidate()
+        await DoHResolver.shared.invalidate()
         logger.log("Proxy routing rules changed", level: .info, category: .webview)
         await rebuildWebViews()
     }

@@ -82,7 +82,7 @@ final class ProxyRoutingService {
         var ipv4 = resolvedAddresses[host]
         var ipv6 = resolvedIPv6Addresses[host]
         if ipv4 == nil, ipv6 == nil, rules.requiresResolution(forHost: host) {
-            let addresses = await Self.resolveAddresses(for: host)
+            let addresses = await resolveAddresses(for: host)
             ipv4 = addresses.ipv4
             ipv6 = addresses.ipv6
             if let ipv4 {
@@ -112,6 +112,11 @@ final class ProxyRoutingService {
         lines.append("Proxy enabled: \(settings.isEnabled ? "yes" : "no")")
         lines.append("iOS 17+ supported: \(ProxyManager.isSupported ? "yes" : "no")")
         lines.append("Mode: \(settings.routingMode.rawValue)")
+        if settings.isDoHEnabled {
+            lines.append("DoH server: \(settings.dohEndpoint?.absoluteString ?? "invalid")")
+        } else {
+            lines.append("DoH server: disabled")
+        }
         let countries = settings.countries
         lines.append("Countries selected: \(countries.isEmpty ? "none" : countries.joined(separator: ", "))")
         let ranges = rules.countryRanges
@@ -127,7 +132,10 @@ final class ProxyRoutingService {
         lines.append("Host: \(host)")
         let ipv4 = await Self.resolveIPv4(host: host)
         let ipv6 = await Self.resolveIPv6(host: host)
-        let dohAddresses = await DoHResolver.shared.resolve(host: host)
+        var dohAddresses: ResolvedAddress?
+        if let endpoint = settings.dohEndpoint {
+            dohAddresses = await DoHResolver.shared.resolve(host: host, endpoint: endpoint)
+        }
         if let ipv4 {
             lines.append("IPv4: \(Self.formatIPv4(ipv4)) (\(IPAddressKind.kind(ipv4: ipv4).rawValue))")
         } else {
@@ -140,11 +148,13 @@ final class ProxyRoutingService {
         }
         lines.append("Bypass list match: \(rules.bypassDomains.matches(host) ? "yes" : "no")")
         lines.append("Exception list match: \(rules.proxyExceptions.matches(host) ? "yes" : "no")")
-        if let dohAddresses {
-            lines.append("DoH IPv4: \(dohAddresses.ipv4.map(Self.formatIPv4) ?? "none")")
-            lines.append("DoH IPv6: \(dohAddresses.ipv6?.displayName ?? "none")")
-        } else {
-            lines.append("DoH: no answer")
+        if settings.isDoHEnabled {
+            if let dohAddresses {
+                lines.append("DoH IPv4: \(dohAddresses.ipv4.map(Self.formatIPv4) ?? "none")")
+                lines.append("DoH IPv6: \(dohAddresses.ipv6?.displayName ?? "none")")
+            } else {
+                lines.append("DoH: no answer")
+            }
         }
         lines.append("Local host name: \(IPAddressKind.isLocalHostName(host) ? "yes" : "no")")
         if let match = rules.matchingCountry(host: host, ipv4: ipv4, ipv6: ipv6) {
@@ -219,17 +229,20 @@ final class ProxyRoutingService {
             .joined(separator: ".")
     }
 
-    /// System addresses, replaced with DoH answers when the system resolver returns a fake-IP or
-    /// nothing at all for a public host. Fake-IP answers carry no country information.
-    private nonisolated static func resolveAddresses(for host: String) async -> ResolvedAddress {
-        async let systemIPv4 = resolveIPv4(host: host)
-        async let systemIPv6 = resolveIPv6(host: host)
+    /// System addresses, replaced with DoH answers when DoH is enabled and the system resolver
+    /// returns a fake-IP or nothing at all for a public host. Fake-IP answers carry no country data.
+    private func resolveAddresses(for host: String) async -> ResolvedAddress {
+        async let systemIPv4 = Self.resolveIPv4(host: host)
+        async let systemIPv6 = Self.resolveIPv6(host: host)
         let system = ResolvedAddress(ipv4: await systemIPv4, ipv6: await systemIPv6)
 
-        guard isNonPublic(system), !IPAddressKind.isLocalHostName(host) else {
+        guard Self.isNonPublic(system), !IPAddressKind.isLocalHostName(host) else {
             return system
         }
-        if let doh = await DoHResolver.shared.resolve(host: host) {
+        guard let endpoint = settings.dohEndpoint else {
+            return system
+        }
+        if let doh = await DoHResolver.shared.resolve(host: host, endpoint: endpoint) {
             return doh
         }
         return system
