@@ -36,10 +36,16 @@ final class ProxyRoutingService {
         resolvedAddresses.removeAll()
     }
 
+    /// Route used when no host is known yet. Proxying is the safe default.
+    var defaultRoute: ProxyRoute {
+        guard ProxyManager.isSupported, settings.isEnabled else { return .direct }
+        return .proxied
+    }
+
     /// Route that can be computed without waiting for DNS.
     func cachedRoute(for url: URL?) -> ProxyRoute {
         guard ProxyManager.isSupported, settings.isEnabled else { return .direct }
-        guard let host = normalizedHost(for: url) else { return .direct }
+        guard isWebURL(url), let host = normalizedHost(for: url) else { return defaultRoute }
 
         if let cached = routeCache[host] {
             return cached
@@ -62,7 +68,7 @@ final class ProxyRoutingService {
     /// Full route, resolving the host for the geoip rule when needed.
     func route(for url: URL?) async -> ProxyRoute {
         guard ProxyManager.isSupported, settings.isEnabled else { return .direct }
-        guard let host = normalizedHost(for: url) else { return .direct }
+        guard isWebURL(url), let host = normalizedHost(for: url) else { return defaultRoute }
 
         if let cached = routeCache[host] {
             return cached
@@ -106,6 +112,11 @@ final class ProxyRoutingService {
                                  bypassDomains: settings.bypassDomains,
                                  proxyExceptions: settings.proxyExceptions,
                                  countryRanges: [])
+    }
+
+    private func isWebURL(_ url: URL?) -> Bool {
+        guard let scheme = url?.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https"
     }
 
     private func normalizedHost(for url: URL?) -> String? {

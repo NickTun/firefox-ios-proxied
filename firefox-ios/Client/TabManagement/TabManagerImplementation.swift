@@ -1351,7 +1351,9 @@ final class TabManagerImplementation: NSObject,
 
     func rerouteTabIfNeeded(tab: Tab, url: URL) async -> Bool {
         guard ProxyManager.isSupported,
-              ProxySettings(prefs: profile.prefs).isEnabled
+              ProxySettings(prefs: profile.prefs).isEnabled,
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https"
         else { return false }
 
         let route = await ProxyRoutingService.shared.route(for: url)
