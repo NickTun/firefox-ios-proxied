@@ -29,16 +29,23 @@ public actor GeoIPDataStore {
     private var rangesCache: [String: CountryCIDRRanges] = [:]
 
     public init(directory: URL? = nil) {
-        let resolvedDirectory: URL
-        if let directory {
-            resolvedDirectory = directory
-        } else {
-            let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-                ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-            resolvedDirectory = base.appendingPathComponent("GeoIP", isDirectory: true)
-        }
+        let resolvedDirectory = directory ?? GeoIPDataStore.defaultDirectory()
         self.directory = resolvedDirectory
         try? FileManager.default.createDirectory(at: resolvedDirectory, withIntermediateDirectories: true)
+    }
+
+    /// Whether the country ranges are already stored, without touching the actor.
+    nonisolated public static func localDataExists(for countryCode: String) -> Bool {
+        let path = defaultDirectory()
+            .appendingPathComponent("\(countryCode.uppercased()).cidr")
+            .path
+        return FileManager.default.fileExists(atPath: path)
+    }
+
+    nonisolated private static func defaultDirectory() -> URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        return base.appendingPathComponent("GeoIP", isDirectory: true)
     }
 
     public func storedCountries() -> [String] {

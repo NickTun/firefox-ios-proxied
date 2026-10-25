@@ -105,13 +105,17 @@ final class ProxySettingsViewController: SettingsTableViewController {
         )
         countriesSetting.enabled = ProxyManager.isSupported
 
-        let updatedText: String
+        let missingCountries = countries.filter { !GeoIPDataStore.localDataExists(for: $0) }
+        var updatedText: String
         if isUpdatingGeoIP {
             updatedText = "Updating…"
         } else if let date = settings.geoIPUpdatedAt {
             updatedText = "Updated \(Self.dateFormatter.string(from: date))"
         } else {
             updatedText = "Not downloaded"
+        }
+        if !missingCountries.isEmpty {
+            updatedText += " · no data for \(missingCountries.joined(separator: ", "))"
         }
         let update = ClosureSetting(
             title: "Update GeoIP data",

@@ -17,12 +17,15 @@ final class ProxyRoutingService {
     static let shared = ProxyRoutingService()
 
     private let profile: Profile
+    private let logger: Logger
     private var rulesCache: ProxyRoutingRules?
     private var routeCache: [String: ProxyRoute] = [:]
     private var resolvedAddresses: [String: UInt32] = [:]
 
-    init(profile: Profile = AppContainer.shared.resolve()) {
+    init(profile: Profile = AppContainer.shared.resolve(),
+         logger: Logger = DefaultLogger.shared) {
         self.profile = profile
+        self.logger = logger
     }
 
     var settings: ProxySettings {
@@ -43,6 +46,9 @@ final class ProxyRoutingService {
     }
 
     /// Route that can be computed without waiting for DNS.
+    ///
+    /// A decision that still depends on a DNS lookup is returned but not cached, otherwise the
+    /// GeoIP rule would never get a chance to run for that host.
     func cachedRoute(for url: URL?) -> ProxyRoute {
         guard ProxyManager.isSupported, settings.isEnabled else { return .direct }
         guard isWebURL(url), let host = normalizedHost(for: url) else { return defaultRoute }
@@ -50,18 +56,13 @@ final class ProxyRoutingService {
         if let cached = routeCache[host] {
             return cached
         }
-        if let rulesCache {
-            if !rulesCache.requiresResolution(forHost: host) || resolvedAddresses[host] != nil {
-                let route = rulesCache.route(forHost: host, ipv4: resolvedAddresses[host])
-                routeCache[host] = route
-                return route
-            }
-            return .direct
+
+        let rules = rulesCache ?? domainOnlyRules()
+        let address = resolvedAddresses[host]
+        let route = rules.route(forHost: host, ipv4: address)
+        if !isProvisional(host: host, address: address) {
+            routeCache[host] = route
         }
-        let rules = domainOnlyRules()
-        guard !rules.requiresResolution(forHost: host) else { return .direct }
-        let route = rules.route(forHost: host, ipv4: nil)
-        routeCache[host] = route
         return route
     }
 
@@ -76,13 +77,32 @@ final class ProxyRoutingService {
 
         let rules = await loadedRules()
         var address = resolvedAddresses[host]
-        if rules.requiresResolution(forHost: host), address == nil {
+        if address == nil, rules.requiresResolution(forHost: host) {
             address = await Self.resolveIPv4(host: host)
-            resolvedAddresses[host] = address
+            if let address {
+                resolvedAddresses[host] = address
+            }
         }
         let route = rules.route(forHost: host, ipv4: address)
-        routeCache[host] = route
+        if !isProvisional(host: host, address: address) {
+            routeCache[host] = route
+            logger.log("Proxy route \(route.rawValue) for \(host)",
+                       level: .debug,
+                       category: .webview)
+        }
         return route
+    }
+
+    /// Whether the route may change once the host has been resolved.
+    private func isProvisional(host: String, address: UInt32?) -> Bool {
+        guard address == nil else { return false }
+        return needsGeoIPLookup(host: host)
+    }
+
+    private func needsGeoIPLookup(host: String) -> Bool {
+        let settings = self.settings
+        guard settings.routingMode == .rules, !settings.countries.isEmpty else { return false }
+        return !settings.proxyExceptions.matches(host) && !settings.bypassDomains.matches(host)
     }
 
     // MARK: - Rules
