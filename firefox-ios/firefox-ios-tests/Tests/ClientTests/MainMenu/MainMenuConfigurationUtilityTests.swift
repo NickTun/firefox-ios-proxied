@@ -290,7 +290,8 @@ final class MainMenuConfigurationUtilityTests: XCTestCase {
             isInReadingList: false,
             isPinned: false,
             accountData: AccountData(title: "Test Title", subtitle: "Test Subtitle"),
-            translationConfiguration: translationConfiguration
+            translationConfiguration: translationConfiguration,
+            proxyRouteOverride: nil
         )
     }
 

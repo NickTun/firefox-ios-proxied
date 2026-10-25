@@ -1087,6 +1087,14 @@ final class TabManagerImplementation: NSObject,
             updateLastExecutedTime: updateLastExecutedTime
         )
 
+        // A background tab may have been resolved to the other proxy route while it was hidden; the
+        // web view still lives in the old data store until it is rebuilt here.
+        if let desired = tab.desiredProxyRoute, desired != tab.proxyRoute, let url = tab.url {
+            Task { @MainActor [weak self] in
+                _ = await self?.rerouteTabIfNeeded(tab: tab, url: url)
+            }
+        }
+
         themeManager.setPrivateTheme(isOn: tab.isPrivate, for: windowUUID)
 
         let action = PrivateModeAction(isPrivate: tab.isPrivate,
@@ -1356,10 +1364,24 @@ final class TabManagerImplementation: NSObject,
               scheme == "http" || scheme == "https"
         else { return false }
 
-        let route = await ProxyRoutingService.shared.route(for: url)
-        guard route != tab.proxyRoute else { return false }
+        let desired = tab.proxyRouteOverride ?? await ProxyRoutingService.shared.route(for: url)
+        tab.desiredProxyRoute = desired
+        guard desired != tab.proxyRoute else { return false }
+        return await applyProxyRoute(desired, to: tab, url: url)
+    }
 
+    func setProxyRouteOverride(_ override: ProxyRoute?, for tab: Tab) async {
+        tab.proxyRouteOverride = override
+        guard let url = tab.url,
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https"
+        else { return }
+        _ = await rerouteTabIfNeeded(tab: tab, url: url)
+    }
+
+    private func applyProxyRoute(_ route: ProxyRoute, to tab: Tab, url: URL) async -> Bool {
         tab.proxyRoute = route
+        tab.desiredProxyRoute = nil
         logger.log("Re-routing tab to \(route.rawValue) for \(url.host ?? "")",
                    level: .info,
                    category: .tabs)

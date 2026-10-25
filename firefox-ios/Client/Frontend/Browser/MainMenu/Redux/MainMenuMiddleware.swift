@@ -5,6 +5,7 @@
 import Common
 import Redux
 import Shared
+import WebEngine
 
 import class Account.RustFirefoxAccounts
 
@@ -104,7 +105,27 @@ final class MainMenuMiddleware {
         case MainMenuActionType.tapToggleProxy:
             handleTapToggleProxyAction()
 
+        case MainMenuActionType.tapCycleProxyRoute:
+            handleCycleProxyRouteAction(action: action)
+
         default: break
+        }
+    }
+
+    private func handleCycleProxyRouteAction(action: MainMenuAction) {
+        let windowManager: WindowManager = AppContainer.shared.resolve()
+        guard let tabManager = windowManager.tabManager(for: action.windowUUID),
+              let tab = tabManager.selectedTab
+        else { return }
+
+        let next: ProxyRoute?
+        switch tab.proxyRouteOverride {
+        case nil: next = .direct
+        case .direct: next = .proxied
+        case .proxied: next = nil
+        }
+        Task { @MainActor in
+            await tabManager.setProxyRouteOverride(next, for: tab)
         }
     }
 

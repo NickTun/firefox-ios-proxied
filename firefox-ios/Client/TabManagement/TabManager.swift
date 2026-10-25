@@ -4,6 +4,7 @@
 
 import Common
 import Foundation
+import WebEngine
 import WebKit
 import TabDataStore
 
@@ -159,6 +160,9 @@ protocol TabManager: AnyObject {
     /// the route the web view was created with. Returns whether the tab was re-routed.
     @discardableResult
     func rerouteTabIfNeeded(tab: Tab, url: URL) async -> Bool
+
+    /// Forces `tab` onto `override` (or back to the routing rules when nil) and rebuilds it.
+    func setProxyRouteOverride(_ override: ProxyRoute?, for tab: Tab) async
 
     /// ADR 0008: load `tab`'s screenshot from disk if it isn't already in memory. Intended for
     /// just-in-time loading driven by the tab tray's prefetch data source. No-op if the tab

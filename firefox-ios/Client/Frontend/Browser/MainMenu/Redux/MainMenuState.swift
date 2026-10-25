@@ -3,6 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import Common
+import WebEngine
 import MenuKit
 import ModifiedCopy
 import Redux
@@ -77,6 +78,7 @@ struct MainMenuTabInfo: Equatable {
     let isPinned: Bool
     let accountData: AccountData
     let translationConfiguration: TranslationConfiguration?
+    let proxyRouteOverride: ProxyRoute?
 }
 
 @Copyable
@@ -216,6 +218,8 @@ struct MainMenuState: ScreenState, Sendable {
         case MainMenuActionType.tapToggleNightMode:
             return handleDismissMenuAction(state: state)
         case MainMenuActionType.tapToggleProxy:
+            return handleDismissMenuAction(state: state)
+        case MainMenuActionType.tapCycleProxyRoute:
             return handleDismissMenuAction(state: state)
         case MainMenuActionType.tapAddToShortcuts, MainMenuActionType.tapRemoveFromShortcuts:
             return handleDismissMenuAction(state: state)
