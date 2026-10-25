@@ -7,7 +7,7 @@ import Foundation
 /// Decides the proxy route for a host.
 ///
 /// Traffic is proxied by default. In `rules` mode a host is loaded directly when:
-/// * it resolves to a local or fake-IP address, which the device has to route itself,
+/// * it is a local host name, which only exists on the local network,
 /// * it resolves to an address of a selected country,
 /// * its domain belongs to a selected country (ccTLD), or
 /// * it matches the bypass domain list.
@@ -47,10 +47,7 @@ public struct ProxyRoutingRules: Sendable, Equatable {
             if bypassDomains.matches(host) {
                 return .direct
             }
-            if let ipv4, IPAddressKind.kind(ipv4: ipv4) == .local {
-                return .direct
-            }
-            if let ipv6, IPAddressKind.kind(ipv6: ipv6) == .local {
+            if IPAddressKind.isLocalHostName(host) {
                 return .direct
             }
             if matchingCountry(host: host, ipv4: ipv4, ipv6: ipv6) != nil {

@@ -170,20 +170,34 @@ final class ProxyRoutingRulesTests: XCTestCase {
         XCTAssertEqual(match?.source, .address)
     }
 
-    func testLocalAddressesAreDirect() {
+    func testLocalHostNamesAreDirect() {
         let subject = ProxyRoutingRules(mode: .rules, countryRanges: [germanRange])
 
-        XCTAssertEqual(subject.route(forHost: "ya.ru", ipv4: CountryCIDRRanges.parseIPv4("172.19.0.19")),
-                       .direct)
         XCTAssertEqual(subject.route(forHost: "router.lan",
                                      ipv4: CountryCIDRRanges.parseIPv4("192.168.1.1")),
                        .direct)
         XCTAssertEqual(subject.route(forHost: "nas.local",
                                      ipv4: CountryCIDRRanges.parseIPv4("10.0.0.5")),
                        .direct)
+        XCTAssertEqual(subject.route(forHost: "printer", ipv4: nil), .direct)
         XCTAssertEqual(subject.route(forHost: "example.com",
                                      ipv4: CountryCIDRRanges.parseIPv4("8.8.8.8")),
                        .proxied)
+    }
+
+    func testFakeIPForPublicHostDoesNotBypass() {
+        // A fake-IP resolver answers with a private address for a public site. The address carries
+        // no country information, so it must not force the direct route on its own.
+        let subject = ProxyRoutingRules(mode: .rules,
+                                        countryRanges: [germanRange],
+                                        selectedCountryCodes: ["DE"])
+
+        XCTAssertEqual(subject.route(forHost: "ya.ru", ipv4: CountryCIDRRanges.parseIPv4("172.19.0.19")),
+                       .proxied)
+        XCTAssertFalse(IPAddressKind.isLocalHostName("ya.ru"))
+        XCTAssertTrue(IPAddressKind.isLocalHostName("nas.local"))
+        XCTAssertTrue(IPAddressKind.isLocalHostName("intranet"))
+        XCTAssertTrue(IPAddressKind.isLocalHostName("192.168.1.1"))
     }
 
     func testLocalIPv6IsDirect() {

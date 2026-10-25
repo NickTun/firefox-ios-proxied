@@ -130,8 +130,9 @@ final class ProxySettingsViewController: SettingsTableViewController {
         return SettingSection(
             footerTitle: NSAttributedString(
                 string: "Sites in a selected country are loaded directly. The country is matched by " +
-                        "IPv4/IPv6 address or by the country domain (.ru, .de and so on). Data is " +
-                        "downloaded when a country is selected."
+                        "IPv4/IPv6 address or by the country domain (.ru, .de and so on). When the " +
+                        "system DNS returns fake-IP answers, real addresses are looked up over " +
+                        "DNS-over-HTTPS (Cloudflare). Data is downloaded when a country is selected."
             ),
             children: [countriesSetting, update]
         )

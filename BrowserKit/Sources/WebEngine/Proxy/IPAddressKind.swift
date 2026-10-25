@@ -35,6 +35,20 @@ public enum IPAddressKind: String, Sendable {
         return .publicAddress
     }
 
+    /// Whether a host name can only exist on the local network. Fake-IP answers for public domains
+    /// look like private addresses, so the address alone is not enough to treat a host as local.
+    public static func isLocalHostName(_ host: String) -> Bool {
+        let normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return false }
+        guard normalized.contains(".") else { return true }
+        if CountryCIDRRanges.parseIPv4(normalized) != nil || IPv6Address(normalized) != nil {
+            return true
+        }
+        let localSuffixes = ["lan", "local", "internal", "home", "localhost", "localdomain", "arpa", "test", "invalid"]
+        guard let tld = normalized.split(separator: ".").last.map(String.init) else { return false }
+        return localSuffixes.contains(tld)
+    }
+
     public static func kind(ipv6: IPv6Address) -> IPAddressKind {
         if ipv6 == IPv6Address(high: 0, low: 0) || ipv6 == IPv6Address(high: 0, low: 1) {
             return .local

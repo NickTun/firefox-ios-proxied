@@ -82,8 +82,9 @@ final class ProxyRoutingService {
         var ipv4 = resolvedAddresses[host]
         var ipv6 = resolvedIPv6Addresses[host]
         if ipv4 == nil, ipv6 == nil, rules.requiresResolution(forHost: host) {
-            ipv4 = await Self.resolveIPv4(host: host)
-            ipv6 = await Self.resolveIPv6(host: host)
+            let addresses = await Self.resolveAddresses(for: host)
+            ipv4 = addresses.ipv4
+            ipv6 = addresses.ipv6
             if let ipv4 {
                 resolvedAddresses[host] = ipv4
             }
@@ -126,6 +127,7 @@ final class ProxyRoutingService {
         lines.append("Host: \(host)")
         let ipv4 = await Self.resolveIPv4(host: host)
         let ipv6 = await Self.resolveIPv6(host: host)
+        let dohAddresses = await DoHResolver.shared.resolve(host: host)
         if let ipv4 {
             lines.append("IPv4: \(Self.formatIPv4(ipv4)) (\(IPAddressKind.kind(ipv4: ipv4).rawValue))")
         } else {
@@ -138,6 +140,13 @@ final class ProxyRoutingService {
         }
         lines.append("Bypass list match: \(rules.bypassDomains.matches(host) ? "yes" : "no")")
         lines.append("Exception list match: \(rules.proxyExceptions.matches(host) ? "yes" : "no")")
+        if let dohAddresses {
+            lines.append("DoH IPv4: \(dohAddresses.ipv4.map(Self.formatIPv4) ?? "none")")
+            lines.append("DoH IPv6: \(dohAddresses.ipv6?.displayName ?? "none")")
+        } else {
+            lines.append("DoH: no answer")
+        }
+        lines.append("Local host name: \(IPAddressKind.isLocalHostName(host) ? "yes" : "no")")
         if let match = rules.matchingCountry(host: host, ipv4: ipv4, ipv6: ipv6) {
             lines.append("Country match: \(match.countryCode) (\(match.source.rawValue))")
         } else {
@@ -208,6 +217,32 @@ final class ProxyRoutingService {
         return [24, 16, 8, 0]
             .map { String((address >> UInt32($0)) & 0xFF) }
             .joined(separator: ".")
+    }
+
+    /// System addresses, replaced with DoH answers when the system resolver returns a fake-IP or
+    /// nothing at all for a public host. Fake-IP answers carry no country information.
+    private nonisolated static func resolveAddresses(for host: String) async -> ResolvedAddress {
+        async let systemIPv4 = resolveIPv4(host: host)
+        async let systemIPv6 = resolveIPv6(host: host)
+        let system = ResolvedAddress(ipv4: await systemIPv4, ipv6: await systemIPv6)
+
+        guard isNonPublic(system), !IPAddressKind.isLocalHostName(host) else {
+            return system
+        }
+        if let doh = await DoHResolver.shared.resolve(host: host) {
+            return doh
+        }
+        return system
+    }
+
+    private nonisolated static func isNonPublic(_ address: ResolvedAddress) -> Bool {
+        if let ipv4 = address.ipv4, IPAddressKind.kind(ipv4: ipv4) == .local {
+            return true
+        }
+        if let ipv6 = address.ipv6, IPAddressKind.kind(ipv6: ipv6) == .local {
+            return true
+        }
+        return address.ipv4 == nil && address.ipv6 == nil
     }
 
     private nonisolated static func resolveIPv4(host: String) async -> UInt32? {
