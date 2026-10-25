@@ -580,6 +580,9 @@ extension BrowserViewController: WKNavigationDelegate {
                 if let route = await self.tabManager.resolvedProxyRoute(tab: tab, url: url) {
                     ProxyRoutingLog.shared.add("preflight cancel \(url.host ?? "?") -> \(route.rawValue)")
                     handler(.cancel)
+                    // Let WebKit finish cancelling before the tab is rebuilt, otherwise the
+                    // cancellation can restore the previous document over the new load.
+                    await Task.yield()
                     await self.tabManager.applyProxyRoute(tab: tab, route: route, url: url)
                 } else {
                     self.handleNavigationAction(navigationAction,

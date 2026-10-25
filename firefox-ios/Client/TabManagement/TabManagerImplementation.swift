@@ -1380,7 +1380,10 @@ final class TabManagerImplementation: NSObject,
 
     func setProxyRouteOverride(_ override: ProxyRoute?, for tab: Tab) async {
         tab.proxyRouteOverride = override
-        guard let url = tab.url,
+        ProxyRoutingLog.shared.add("override -> \(override?.rawValue ?? "auto")")
+        // The tab URL can be stale or empty while a redirect is in flight, so fall back to the URL the
+        // web view is actually showing.
+        guard let url = tab.url ?? tab.webView?.url,
               let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https"
         else { return }
