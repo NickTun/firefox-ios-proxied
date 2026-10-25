@@ -1,0 +1,155 @@
+name: 'Firefox: build unsigned IPA'
+
+# Produces an unsigned .ipa that can be re-signed and sideloaded with
+# AltStore, SideStore, Sideloadly, etc. Nothing is signed here on purpose:
+# signing needs a development team, and sideloading tools replace the
+# signature (and the entitlements they cannot grant) with the user's own.
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+      - 'build/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: unsigned-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 180
+    env:
+      NSUnbufferedIO: YES
+    strategy:
+      fail-fast: false
+      matrix:
+        xcode: ["26.5"]
+        node: ["24"]
+    steps:
+      - name: Select Xcode ${{ matrix.xcode }}
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: ${{ matrix.xcode }}
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          sw_vers
+
+      - name: Set up Node ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Build user scripts
+        run: |
+          npm ci
+          npm run build
+
+      - name: Download nimbus-fml
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf \
+            https://raw.githubusercontent.com/mozilla/application-services/main/components/nimbus/ios/scripts/bootstrap.sh \
+            | bash -s -- --directory ./firefox-ios/bin ./firefox-ios/nimbus.fml.yaml
+          ls -la firefox-ios/bin
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ hashFiles('firefox-ios/Client.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'BrowserKit/Package.resolved', 'MozillaRustComponents/Package.resolved') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
+
+      - name: Resolve Swift packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project firefox-ios/Client.xcodeproj \
+            -scheme Firefox \
+            -onlyUsePackageVersionsFromResolvedFile \
+            -skipMacroValidation \
+            -derivedDataPath build
+
+      - name: Build app (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project firefox-ios/Client.xcodeproj \
+            -scheme Firefox \
+            -configuration Firefox \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -destination-timeout 120 \
+            -derivedDataPath build \
+            -skipMacroValidation \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            | tee build.log
+
+      - name: Package IPA
+        run: |
+          set -euo pipefail
+          APP=$(find build/Build/Products -maxdepth 2 -name 'Client.app' -type d | head -1)
+          if [ -z "${APP}" ]; then
+            echo "Client.app not found in build products"
+            find build/Build/Products -maxdepth 2
+            exit 1
+          fi
+          echo "Packaging ${APP}"
+          rm -rf Payload dist
+          mkdir -p Payload dist
+          cp -R "${APP}" Payload/
+          ditto -c -k --sequesterRsrc --keepParent Payload "dist/Firefox-unsigned.ipa"
+          ls -lh dist
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Firefox-unsigned-ipa
+          path: dist/Firefox-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish build log on failure
+        if: failure()
+        run: |
+          if [ ! -f build.log ]; then
+            echo "build.log is missing"
+            exit 0
+          fi
+          mkdir -p ci-logs
+          tail -n 40000 build.log > ci-logs/build.log
+          grep -n -E "error: " ci-logs/build.log | tail -n 400 > ci-logs/errors.txt || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B ci-logs
+          git add -f ci-logs
+          git commit -m "CI build log ${GITHUB_RUN_ID}" || exit 0
+          git push --force origin ci-logs
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: ignore
+          retention-days: 7

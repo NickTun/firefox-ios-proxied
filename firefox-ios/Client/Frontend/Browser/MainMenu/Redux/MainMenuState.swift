@@ -215,6 +215,8 @@ struct MainMenuState: ScreenState, Sendable {
             return handleTapZoomAction(state: state)
         case MainMenuActionType.tapToggleNightMode:
             return handleDismissMenuAction(state: state)
+        case MainMenuActionType.tapToggleProxy:
+            return handleDismissMenuAction(state: state)
         case MainMenuActionType.tapAddToShortcuts, MainMenuActionType.tapRemoveFromShortcuts:
             return handleDismissMenuAction(state: state)
         default:

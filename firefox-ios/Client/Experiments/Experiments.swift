@@ -115,12 +115,17 @@ enum Experiments {
         } else if AppConstants.isRunningUnitTest {
             let dir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             profilePath = dir.path
+        } else if let container = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: AppInfo.sharedContainerIdentifier
+        ) {
+            profilePath = container.appendingPathComponent("profile.profile").path
         } else {
-            profilePath = FileManager.default.containerURL(
-                forSecurityApplicationGroupIdentifier: AppInfo.sharedContainerIdentifier
-            )?
-                .appendingPathComponent("profile.profile")
-                .path
+            // Builds without the app group entitlement (unsigned or sideloaded builds) have no shared
+            // container. Keep Nimbus usable with a database in the app container instead of disabling it,
+            // which would leave Nimbus driven UI such as onboarding without any configuration.
+            let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            profilePath = directory.path
         }
         let dbPath = profilePath.flatMap {
             URL(fileURLWithPath: $0).appendingPathComponent("nimbus.db").path

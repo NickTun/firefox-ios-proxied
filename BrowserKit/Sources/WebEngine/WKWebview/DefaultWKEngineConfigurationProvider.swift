@@ -3,6 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import Foundation
+import Network
 import WebKit
 
 @MainActor
@@ -103,6 +104,26 @@ public struct DefaultWKEngineConfigurationProvider: WKEngineConfigurationProvide
         defaultStore.proxyConfigurations = stack
         nonPersistentStore.proxyConfigurations = stack
         isProxyEnabled = !configs.isEmpty
+    }
+
+    /// Routes every request made by web content through an HTTP proxy.
+    ///
+    /// The configuration is stored on `WKWebsiteDataStore`, so only the web content networking stack is
+    /// affected: requests made by the app itself (telemetry, sync, its own HTTP clients) keep going direct.
+    /// HTTPS is tunnelled through the same proxy using HTTP CONNECT.
+    @available(iOS 17.0, *)
+    public static func applyHTTPProxy(_ endpoint: HTTPProxyEndpoint, forcingSessionReset: Bool = true) {
+        guard endpoint.isValid, let port = NWEndpoint.Port(rawValue: UInt16(endpoint.port)) else { return }
+        let configuration = ProxyConfiguration(
+            httpCONNECTProxy: .hostPort(host: NWEndpoint.Host(endpoint.host), port: port),
+            tlsOptions: nil
+        )
+        applyProxyConfigurations([configuration], forcingSessionReset: forcingSessionReset)
+    }
+
+    @available(iOS 17.0, *)
+    public static func clearHTTPProxy(forcingSessionReset: Bool = true) {
+        applyProxyConfigurations([], forcingSessionReset: forcingSessionReset)
     }
 
     public func endPrivateBrowsingSession() {
