@@ -1187,6 +1187,7 @@ final class TabManagerImplementation: NSObject,
     ) {
         MainActor.assertIsolated("Expected to be called only on main actor.")
         tab.proxyRoute = proxyRoute(for: tab.url)
+        ProxyRoutingLog.shared.add("restore tab \(tab.proxyRoute.rawValue) \(tab.url?.host ?? "no url")")
         let configuration = tabConfigurationProvider.configuration(isPrivate: tab.isPrivate,
                                                                   route: tab.proxyRoute).webViewConfiguration
         selectedTab?.createWebview(with: sessionData, configuration: configuration)
@@ -1541,6 +1542,7 @@ final class TabManagerImplementation: NSObject,
         // Create the webview right away for tabs that are not zombies
         if !zombie {
             tab.proxyRoute = proxyRoute(for: tab.url)
+            ProxyRoutingLog.shared.add("create tab \(tab.proxyRoute.rawValue) \(tab.url?.host ?? "no url")")
             let configuration = tabConfigurationProvider.configuration(isPrivate: tab.isPrivate,
                                                                       route: tab.proxyRoute).webViewConfiguration
             tab.createWebview(configuration: configuration)
