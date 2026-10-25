@@ -61,6 +61,13 @@ final class ProxyManager {
         await applyProxyConfiguration(settings: settings)
     }
 
+    /// Rebuilds every web view after the routing rules changed, so tabs pick up their new route.
+    func reconfigureRouting() async {
+        ProxyRoutingService.shared.invalidate()
+        logger.log("Proxy routing rules changed", level: .info, category: .webview)
+        await rebuildWebViews()
+    }
+
     private func applyProxyConfiguration(settings: ProxySettings) async {
         guard #available(iOS 17.0, *) else { return }
 
@@ -76,7 +83,18 @@ final class ProxyManager {
             DefaultWKEngineConfigurationProvider.clearHTTPProxy()
             logger.log("HTTP proxy disabled", level: .info, category: .webview)
         }
+        ProxyRoutingService.shared.invalidate()
 
+        for tabManager in tabManagers {
+            tabManager.restoreSelectedTabForProxyChange()
+        }
+    }
+
+    private func rebuildWebViews() async {
+        let tabManagers = tabManagers()
+        for tabManager in tabManagers {
+            await tabManager.tearDownWebViewsForProxyChange()
+        }
         for tabManager in tabManagers {
             tabManager.restoreSelectedTabForProxyChange()
         }

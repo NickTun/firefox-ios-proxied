@@ -285,6 +285,8 @@ class Tab: NSObject,
 
     var userActivity: NSUserActivity?
     var webView: TabWebView?
+    /// Proxy route this tab's web view was created with. Each route uses its own `WKWebsiteDataStore`.
+    var proxyRoute: ProxyRoute = .direct
     weak var tabDelegate: LegacyTabDelegate?
     var loginAlert: SaveLoginAlert?
     var lastExecutedTime: Timestamp

@@ -200,4 +200,8 @@ class MockTabManager: TabManager {
     func discardTabsMovedToAnotherWindow() {
         discardTabsMovedToAnotherWindowCalled += 1
     }
+    func rerouteTabIfNeeded(tab: Tab, url: URL) async -> Bool {
+        return false
+    }
+
 }

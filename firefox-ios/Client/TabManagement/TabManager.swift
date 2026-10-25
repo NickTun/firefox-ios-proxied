@@ -155,6 +155,11 @@ protocol TabManager: AnyObject {
     /// back/forward list across the change.
     func restoreSelectedTabForProxyChange()
 
+    /// Rebuilds `tab` in the data store matching the route resolved for `url` when it differs from
+    /// the route the web view was created with. Returns whether the tab was re-routed.
+    @discardableResult
+    func rerouteTabIfNeeded(tab: Tab, url: URL) async -> Bool
+
     /// ADR 0008: load `tab`'s screenshot from disk if it isn't already in memory. Intended for
     /// just-in-time loading driven by the tab tray's prefetch data source. No-op if the tab
     /// already has a screenshot.

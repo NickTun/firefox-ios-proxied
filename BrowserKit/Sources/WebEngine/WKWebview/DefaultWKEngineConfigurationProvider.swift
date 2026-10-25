@@ -24,16 +24,21 @@ public struct WKWebViewParameters {
     /// FXIOS-11986  - Allow Client to pass down it's own scheme handler for now, this will be internal later on
     var schemeHandler: SchemeHandler
 
+    /// Route that decides which `WKWebsiteDataStore` the webview uses.
+    var proxyRoute: ProxyRoute
+
     public init(blockPopups: Bool,
                 isPrivate: Bool,
                 autoPlay: WKAudiovisualMediaTypes,
                 schemeHandler: SchemeHandler,
-                pullRefreshType: EnginePullRefreshViewType = UIRefreshControl.self) {
+                pullRefreshType: EnginePullRefreshViewType = UIRefreshControl.self,
+                proxyRoute: ProxyRoute = .direct) {
         self.blockPopups = blockPopups
         self.isPrivate = isPrivate
         self.autoPlay = autoPlay
         self.schemeHandler = schemeHandler
         self.pullRefreshType = pullRefreshType
+        self.proxyRoute = proxyRoute
     }
 
     /// Default internal Webview parameters initializer for WebEngine reader mode purpose
@@ -43,6 +48,7 @@ public struct WKWebViewParameters {
         self.autoPlay = .all
         self.schemeHandler = WKInternalSchemeHandler()
         self.pullRefreshType = UIRefreshControl.self
+        self.proxyRoute = .direct
     }
 }
 
@@ -56,8 +62,25 @@ public protocol WKEngineConfigurationProvider {
 
 /// FXIOS-11986 - This will be internal when the WebEngine is fully integrated in Firefox iOS
 public struct DefaultWKEngineConfigurationProvider: WKEngineConfigurationProvider {
-    private static var nonPersistentStore = WKWebsiteDataStore.nonPersistent()
-    private static let defaultStore = WKWebsiteDataStore.default()
+    /// Tabs are split between these stores: WebKit supports a single proxy stack per data store,
+    /// so the direct and the proxied route need their own cookie jars, caches and storage.
+    private static let proxiedStoreIdentifier = UUID(uuidString: "A1B2C3D4-5E6F-4708-9A0B-C1D2E3F40516")!
+    private static let directStore = WKWebsiteDataStore.default()
+    private static var cachedProxiedStore: WKWebsiteDataStore?
+    private static var nonPersistentDirectStore = WKWebsiteDataStore.nonPersistent()
+    private static var nonPersistentProxiedStore = WKWebsiteDataStore.nonPersistent()
+
+    /// Named persistent store that keeps the proxied route's cookies and caches separate from the
+    /// direct route. Named stores need iOS 17, which is also the minimum for the proxy feature.
+    private static var proxiedStore: WKWebsiteDataStore? {
+        guard #available(iOS 17.0, *) else { return nil }
+        if let cachedProxiedStore {
+            return cachedProxiedStore
+        }
+        let store = WKWebsiteDataStore(forIdentifier: proxiedStoreIdentifier)
+        cachedProxiedStore = store
+        return store
+    }
     private static let defaultDataDetectorTypes: WKDataDetectorTypes = [.phoneNumber]
     public private(set) static var isProxyEnabled = false
     private let configuration: WKWebViewConfiguration
@@ -101,8 +124,8 @@ public struct DefaultWKEngineConfigurationProvider: WKEngineConfigurationProvide
         forcingSessionReset: Bool = true
     ) {
         let stack = forcingSessionReset ? configs + [sessionRecreateTrigger] : configs
-        defaultStore.proxyConfigurations = stack
-        nonPersistentStore.proxyConfigurations = stack
+        proxiedStore?.proxyConfigurations = stack
+        nonPersistentProxiedStore.proxyConfigurations = stack
         isProxyEnabled = !configs.isEmpty
     }
 
@@ -126,14 +149,35 @@ public struct DefaultWKEngineConfigurationProvider: WKEngineConfigurationProvide
         applyProxyConfigurations([], forcingSessionReset: forcingSessionReset)
     }
 
+    /// Every store that may hold browsing data, including private stores when a private session is open.
+    public static func allDataStores() -> [WKWebsiteDataStore] {
+        return [directStore, proxiedStore, nonPersistentDirectStore, nonPersistentProxiedStore]
+            .compactMap { $0 }
+    }
+
+    private static func dataStore(isPrivate: Bool, route: ProxyRoute) -> WKWebsiteDataStore {
+        switch (isPrivate, route) {
+        case (false, .direct):
+            return directStore
+        case (false, .proxied):
+            return proxiedStore ?? directStore
+        case (true, .direct):
+            return nonPersistentDirectStore
+        case (true, .proxied):
+            return nonPersistentProxiedStore
+        }
+    }
+
     public func endPrivateBrowsingSession() {
         if #available(iOS 17.0, *) {
-            let currentProxyConfigs = Self.nonPersistentStore.proxyConfigurations
-            Self.nonPersistentStore = .nonPersistent()
-            Self.nonPersistentStore.proxyConfigurations = currentProxyConfigs
+            let currentProxyConfigs = Self.nonPersistentProxiedStore.proxyConfigurations
+            Self.nonPersistentDirectStore = .nonPersistent()
+            Self.nonPersistentProxiedStore = .nonPersistent()
+            Self.nonPersistentProxiedStore.proxyConfigurations = currentProxyConfigs
         } else {
             // If iOS 17 is not available they will never had turned on the proxy
-            Self.nonPersistentStore = .nonPersistent()
+            Self.nonPersistentDirectStore = .nonPersistent()
+            Self.nonPersistentProxiedStore = .nonPersistent()
         }
     }
 
@@ -152,9 +196,8 @@ public struct DefaultWKEngineConfigurationProvider: WKEngineConfigurationProvide
         // Since our app creates multiple web views, we assign the same WKWebsiteDataStore object to web views that
         // may safely share cookies.
         // The cookie store should only be created once, otherwise we can loose them. See FXIOS-11833
-        configuration.websiteDataStore = parameters.isPrivate
-            ? Self.nonPersistentStore
-            : Self.defaultStore
+        configuration.websiteDataStore = Self.dataStore(isPrivate: parameters.isPrivate,
+                                                         route: parameters.proxyRoute)
 
         // Popup WKWebViewConfiguration can have the scheme already registered thus registering again
         // leads to crash

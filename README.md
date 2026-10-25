@@ -1,5 +1,20 @@
 # Firefox for iOS and Focus iOS
 
+> **Disclaimer**
+>
+> This is a vibe-coded hobby fork. It is **not** an official Mozilla project and is not affiliated
+> with, endorsed by, or supported by Mozilla.
+>
+> The fork adds proxy functionality on top of the iOS version of Firefox — a browser-wide HTTP
+> proxy with per-tab routing by domain lists and GeoIP — and is published **for educational
+> purposes only**. It exists to explore how WebKit's `WKWebsiteDataStore` proxy configuration and
+> per-route data stores behave in practice.
+>
+> Expect rough edges. The passthrough proxy code, the routing engine and the unsigned-IPA CI
+> workflow were written by an AI agent, with no warranty of any kind. Do not use this build where
+> you need a supported, audited or privacy-reviewed browser. Upstream Firefox for iOS remains the
+> work of Mozilla and its contributors; all original licensing and notices apply unchanged.
+
 Download [Firefox iOS](https://apps.apple.com/app/firefox-web-browser/id989804926) and [Focus iOS](https://itunes.apple.com/app/id1055677337) on the App Store.
 
 <table>

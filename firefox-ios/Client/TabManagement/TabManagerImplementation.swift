@@ -6,6 +6,7 @@ import Foundation
 import TabDataStore
 import Common
 import Shared
+import WebEngine
 import WebKit
 
 import protocol Storage.DiskImageStore
@@ -1177,7 +1178,9 @@ final class TabManagerImplementation: NSObject,
         updateLastExecutedTime: Bool
     ) {
         MainActor.assertIsolated("Expected to be called only on main actor.")
-        let configuration = tabConfigurationProvider.configuration(isPrivate: tab.isPrivate).webViewConfiguration
+        tab.proxyRoute = proxyRoute(for: tab.url)
+        let configuration = tabConfigurationProvider.configuration(isPrivate: tab.isPrivate,
+                                                                  route: tab.proxyRoute).webViewConfiguration
         selectedTab?.createWebview(with: sessionData, configuration: configuration)
 
         if updateLastExecutedTime {
@@ -1346,6 +1349,36 @@ final class TabManagerImplementation: NSObject,
         }
     }
 
+    func rerouteTabIfNeeded(tab: Tab, url: URL) async -> Bool {
+        guard ProxyManager.isSupported,
+              ProxySettings(prefs: profile.prefs).isEnabled
+        else { return false }
+
+        let route = await ProxyRoutingService.shared.route(for: url)
+        guard route != tab.proxyRoute else { return false }
+
+        tab.proxyRoute = route
+        logger.log("Re-routing tab to \(route.rawValue) for \(url.host ?? "")",
+                   level: .info,
+                   category: .tabs)
+        guard tab === selectedTab else { return false }
+
+        await tab.loadBlankPage()
+        await tab.offloadWebView()
+        let configuration = tabConfigurationProvider.configuration(isPrivate: tab.isPrivate,
+                                                                  route: route).webViewConfiguration
+        tab.createWebview(configuration: configuration)
+        tab.loadRequest(URLRequest(url: url))
+        return true
+    }
+
+    /// Route that can be decided without waiting for DNS. GeoIP decisions that need a lookup are
+    /// refined by `rerouteTabIfNeeded` once the tab committed its navigation.
+    private func proxyRoute(for url: URL?) -> ProxyRoute {
+        guard ProxyManager.isSupported else { return .direct }
+        return ProxyRoutingService.shared.cachedRoute(for: url)
+    }
+
     func restoreSelectedTabForProxyChange() {
         guard let selectedTab,
               let tabUUID = UUID(uuidString: selectedTab.tabUUID)
@@ -1411,7 +1444,9 @@ final class TabManagerImplementation: NSObject,
 
         // Create the webview right away for tabs that are not zombies
         if !zombie {
-            let configuration = tabConfigurationProvider.configuration(isPrivate: tab.isPrivate).webViewConfiguration
+            tab.proxyRoute = proxyRoute(for: tab.url)
+            let configuration = tabConfigurationProvider.configuration(isPrivate: tab.isPrivate,
+                                                                      route: tab.proxyRoute).webViewConfiguration
             tab.createWebview(configuration: configuration)
         }
         tab.navigationDelegate = navigationDelegate

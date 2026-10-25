@@ -10,12 +10,12 @@ import WebKit
 class TabConfigurationProvider {
     // A WKWebViewConfiguration used for normal tabs
     var configuration: WKEngineConfiguration {
-        configuration(from: profile, isPrivate: false)
+        configuration(from: profile, isPrivate: false, route: .direct)
     }
 
     // A WKWebViewConfiguration used for private mode tabs
     var privateConfiguration: WKEngineConfiguration {
-        configuration(from: profile, isPrivate: true)
+        configuration(from: profile, isPrivate: true, route: .direct)
     }
 
     private let configurationProvider = DefaultWKEngineConfigurationProvider()
@@ -28,11 +28,11 @@ class TabConfigurationProvider {
     }
 
     func configuration(isPrivate: Bool) -> WKEngineConfiguration {
-        if isPrivate {
-            privateConfiguration
-        } else {
-            configuration
-        }
+        return configuration(isPrivate: isPrivate, route: .direct)
+    }
+
+    func configuration(isPrivate: Bool, route: ProxyRoute) -> WKEngineConfiguration {
+        return configuration(from: profile, isPrivate: isPrivate, route: route)
     }
 
     func updateAllowsPopups(_ allowsPopups: Bool) {
@@ -49,14 +49,15 @@ class TabConfigurationProvider {
         configurationProvider.endPrivateBrowsingSession()
     }
 
-    private func configuration(from profile: Profile, isPrivate: Bool) -> WKEngineConfiguration {
+    private func configuration(from profile: Profile, isPrivate: Bool, route: ProxyRoute) -> WKEngineConfiguration {
         let blockPopups = profile.prefs.boolForKey(PrefsKeys.KeyBlockPopups) ?? true
         let autoPlay = AutoplayAccessors.getMediaTypesRequiringUserActionForPlayback(profile.prefs)
         let parameters = WKWebViewParameters(
             blockPopups: blockPopups,
             isPrivate: isPrivate,
             autoPlay: autoPlay,
-            schemeHandler: InternalSchemeHandler()
+            schemeHandler: InternalSchemeHandler(),
+            proxyRoute: route
         )
         let engineConfiguration = configurationProvider.createConfiguration(parameters: parameters)
 

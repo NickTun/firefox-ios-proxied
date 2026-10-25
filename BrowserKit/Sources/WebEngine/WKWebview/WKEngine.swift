@@ -84,7 +84,9 @@ public final class WKEngine: Engine {
         MemoryReaderModeCache.shared.clear()
 
         let dataTypes = Set([WKWebsiteDataTypeDiskCache, WKWebsiteDataTypeMemoryCache])
-        WKWebsiteDataStore.default().removeData(ofTypes: dataTypes, modifiedSince: .distantPast, completionHandler: {})
+        for store in DefaultWKEngineConfigurationProvider.allDataStores() {
+            store.removeData(ofTypes: dataTypes, modifiedSince: .distantPast, completionHandler: {})
+        }
     }
 
     public func clearCookies() {
@@ -92,7 +94,9 @@ public final class WKEngine: Engine {
         // state there in addition to cookies. Clearing cookies should remove
         // login state, not just WK cookie records.
         let dataTypes = Set([WKWebsiteDataTypeCookies, WKWebsiteDataTypeLocalStorage])
-        WKWebsiteDataStore.default().removeData(ofTypes: dataTypes, modifiedSince: .distantPast, completionHandler: {})
+        for store in DefaultWKEngineConfigurationProvider.allDataStores() {
+            store.removeData(ofTypes: dataTypes, modifiedSince: .distantPast, completionHandler: {})
+        }
     }
 
     public func clearOfflineWebsiteData() {
@@ -103,7 +107,9 @@ public final class WKEngine: Engine {
             WKWebsiteDataTypeIndexedDBDatabases,
             WKWebsiteDataTypeFetchCache,
         ])
-        WKWebsiteDataStore.default().removeData(ofTypes: dataTypes, modifiedSince: .distantPast, completionHandler: {})
+        for store in DefaultWKEngineConfigurationProvider.allDataStores() {
+            store.removeData(ofTypes: dataTypes, modifiedSince: .distantPast, completionHandler: {})
+        }
     }
 
     public func clearTrackingProtection() {

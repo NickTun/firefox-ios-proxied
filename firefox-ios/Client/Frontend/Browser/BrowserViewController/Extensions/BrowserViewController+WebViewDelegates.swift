@@ -1336,6 +1336,11 @@ extension BrowserViewController: WKNavigationDelegate {
         webviewTelemetry.start()
         let previousURL = tab.url
         tab.url = webView.url
+        if let committedURL = webView.url {
+            Task { @MainActor in
+                _ = await self.tabManager.rerouteTabIfNeeded(tab: tab, url: committedURL)
+            }
+        }
         hideStaleContentOnCrossOriginPopupCommit(for: tab, previousURL: previousURL)
         if let handler = tab.onNextCommit {
             tab.onNextCommit = nil
