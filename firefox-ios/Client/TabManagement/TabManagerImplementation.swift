@@ -1415,12 +1415,20 @@ final class TabManagerImplementation: NSObject,
     }
 
     func applyProxyRoute(tab: Tab, route: ProxyRoute, url: URL) async {
-        _ = await applyProxyRoute(route, to: tab, url: url, force: true)
+        // This path already cancelled a navigation, so it must not be debounced: skipping the rebuild
+        // would leave the tab blank.
+        _ = await applyProxyRoute(route, to: tab, url: url, force: true, bypassDebounce: true)
     }
 
-    private func applyProxyRoute(_ route: ProxyRoute, to tab: Tab, url: URL, force: Bool = false) async -> Bool {
+    private func applyProxyRoute(_ route: ProxyRoute,
+                                 to tab: Tab,
+                                 url: URL,
+                                 force: Bool = false,
+                                 bypassDebounce: Bool = false) async -> Bool {
         guard !tab.isReroutingProxyRoute else { return false }
-        if let last = tab.lastProxyRerouteAt, Date().timeIntervalSince(last) < 2 {
+        if !bypassDebounce,
+           let last = tab.lastProxyRerouteAt,
+           Date().timeIntervalSince(last) < 2 {
             // A site that keeps bouncing between routes would otherwise reload in a loop.
             return false
         }
