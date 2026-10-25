@@ -265,9 +265,10 @@ final class ProxySettingsViewController: SettingsTableViewController {
     }
 
     private func presentDiagnosticsAlert(_ text: String) {
-        let alert = UIAlertController(title: "Proxy diagnostics", message: text, preferredStyle: .alert)
+        let fullText = text + "\n\nRecent routing events:\n" + ProxyRoutingLog.shared.text
+        let alert = UIAlertController(title: "Proxy diagnostics", message: fullText, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Copy", style: .default) { _ in
-            UIPasteboard.general.string = text
+            UIPasteboard.general.string = fullText
         })
         alert.addAction(UIAlertAction(title: "Close", style: .cancel))
         present(alert, animated: true)

@@ -1373,6 +1373,7 @@ final class TabManagerImplementation: NSObject,
             desired = await ProxyRoutingService.shared.route(for: url)
         }
         tab.desiredProxyRoute = desired
+        ProxyRoutingLog.shared.add("route \(desired.rawValue) vs \(tab.proxyRoute.rawValue) for \(url.host ?? "?")")
         guard desired != tab.proxyRoute else { return false }
         return await applyProxyRoute(desired, to: tab, url: url)
     }
@@ -1415,6 +1416,7 @@ final class TabManagerImplementation: NSObject,
     }
 
     func applyProxyRoute(tab: Tab, route: ProxyRoute, url: URL) async {
+        ProxyRoutingLog.shared.add("preflight apply \(route.rawValue) for \(url.host ?? "?")")
         // This path already cancelled a navigation, so it must not be debounced: skipping the rebuild
         // would leave the tab blank.
         _ = await applyProxyRoute(route, to: tab, url: url, force: true, bypassDebounce: true)
@@ -1443,6 +1445,11 @@ final class TabManagerImplementation: NSObject,
         tab.isReroutingProxyRoute = true
         tab.lastProxyRerouteAt = Date()
         defer { tab.isReroutingProxyRoute = false }
+
+        ProxyRoutingLog.shared.add("rebuild tab -> \(route.rawValue) for \(url.host ?? url.absoluteString)")
+        // Point the tab at the navigation URL first: anything that reacts to the web view being
+        // recreated (selection handling, restoration) must not reload the previous page.
+        tab.url = url
 
         // No about:blank hop here: switching the data store does not reset WebKit's network
         // sessions, and navigating away mid-redirect breaks redirect dependent sites.
@@ -1485,6 +1492,7 @@ final class TabManagerImplementation: NSObject,
         // use this configuration WebKit will throw an exception.
         popup.proxyRoute = parentTab.proxyRoute
         popup.proxyRouteOverride = parentTab.proxyRouteOverride
+        ProxyRoutingLog.shared.add("popup inherits \(parentTab.proxyRoute.rawValue)")
         popup.requiredPopupConfiguration = configuration
         configureTab(popup,
                      request: nil,

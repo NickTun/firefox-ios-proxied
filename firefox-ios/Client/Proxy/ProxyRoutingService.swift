@@ -102,6 +102,11 @@ final class ProxyRoutingService {
         if !isProvisional(host: host, ipv4: ipv4, ipv6: ipv6) {
             routeCache[host] = route
             logger.log("Proxy route \(route.rawValue) for \(host)", level: .debug, category: .webview)
+            let address = ipv4.map(Self.formatIPv4) ?? ipv6?.displayName ?? "no address"
+            let country = rules.matchingCountry(host: host, ipv4: ipv4, ipv6: ipv6)?.countryCode ?? "none"
+            ProxyRoutingLog.shared.add("decide \(route.rawValue) \(host) ip=\(address) country=\(country)")
+        } else {
+            ProxyRoutingLog.shared.add("decide provisional \(route.rawValue) \(host) (no address)")
         }
         return route
     }

@@ -578,6 +578,7 @@ extension BrowserViewController: WKNavigationDelegate {
             let handler = decisionHandler
             Task { @MainActor in
                 if let route = await self.tabManager.resolvedProxyRoute(tab: tab, url: url) {
+                    ProxyRoutingLog.shared.add("preflight cancel \(url.host ?? "?") -> \(route.rawValue)")
                     handler(.cancel)
                     await self.tabManager.applyProxyRoute(tab: tab, route: route, url: url)
                 } else {
@@ -1275,6 +1276,7 @@ extension BrowserViewController: WKNavigationDelegate {
         // proxy blocks the site. Retry it in the other data store before showing the error page.
         if let failingURL = error.userInfo[NSURLErrorFailingURLErrorKey] as? URL,
            let tab = tabManager[webView] {
+            ProxyRoutingLog.shared.add("fail \(failingURL.host ?? "?") store=\(tab.proxyRoute.rawValue)")
             Task { @MainActor in
                 _ = await self.tabManager.rerouteTabIfNeeded(tab: tab, url: failingURL)
             }
@@ -1382,6 +1384,7 @@ extension BrowserViewController: WKNavigationDelegate {
         let previousURL = tab.url
         tab.url = webView.url
         if let committedURL = webView.url {
+            ProxyRoutingLog.shared.add("commit \(committedURL.host ?? "?") store=\(tab.proxyRoute.rawValue)")
             Task { @MainActor in
                 _ = await self.tabManager.rerouteTabIfNeeded(tab: tab, url: committedURL)
             }
