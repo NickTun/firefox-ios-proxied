@@ -1235,6 +1235,15 @@ extension BrowserViewController: WKNavigationDelegate {
             return
         }
 
+        // A page can fail because it was loaded through the wrong proxy route, for example when the
+        // proxy blocks the site. Retry it in the other data store before showing the error page.
+        if let failingURL = error.userInfo[NSURLErrorFailingURLErrorKey] as? URL,
+           let tab = tabManager[webView] {
+            Task { @MainActor in
+                _ = await self.tabManager.rerouteTabIfNeeded(tab: tab, url: failingURL)
+            }
+        }
+
         if let url = error.userInfo[NSURLErrorFailingURLErrorKey] as? URL {
             guard var errorPageURLComponents = URLComponents(
                 string: "\(InternalURL.baseUrl)/\(ErrorPageHandler.path)") else {

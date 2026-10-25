@@ -1364,6 +1364,8 @@ final class TabManagerImplementation: NSObject,
               scheme == "http" || scheme == "https"
         else { return false }
 
+        guard !tab.isReroutingProxyRoute else { return false }
+
         let desired: ProxyRoute
         if let override = tab.proxyRouteOverride {
             desired = override
@@ -1385,6 +1387,12 @@ final class TabManagerImplementation: NSObject,
     }
 
     private func applyProxyRoute(_ route: ProxyRoute, to tab: Tab, url: URL) async -> Bool {
+        guard !tab.isReroutingProxyRoute else { return false }
+        if let last = tab.lastProxyRerouteAt, Date().timeIntervalSince(last) < 2 {
+            // A site that keeps bouncing between routes would otherwise reload in a loop.
+            return false
+        }
+
         tab.proxyRoute = route
         tab.desiredProxyRoute = nil
         logger.log("Re-routing tab to \(route.rawValue) for \(url.host ?? "")",
@@ -1392,7 +1400,13 @@ final class TabManagerImplementation: NSObject,
                    category: .tabs)
         guard tab === selectedTab else { return false }
 
-        await tab.loadBlankPage()
+        tab.isReroutingProxyRoute = true
+        tab.lastProxyRerouteAt = Date()
+        defer { tab.isReroutingProxyRoute = false }
+
+        // No about:blank hop here: switching the data store does not reset WebKit's network
+        // sessions, and navigating away mid-redirect breaks redirect dependent sites.
+        tab.webView?.stopLoading()
         await tab.offloadWebView()
         let configuration = tabConfigurationProvider.configuration(isPrivate: tab.isPrivate,
                                                                   route: route).webViewConfiguration
@@ -1429,6 +1443,8 @@ final class TabManagerImplementation: NSObject,
         // Configure the tab for the child popup webview. In this scenario we need to be sure to pass along
         // the specific `configuration` that we are given by the WKUIDelegate callback, since if we do not
         // use this configuration WebKit will throw an exception.
+        popup.proxyRoute = parentTab.proxyRoute
+        popup.proxyRouteOverride = parentTab.proxyRouteOverride
         popup.requiredPopupConfiguration = configuration
         configureTab(popup,
                      request: nil,

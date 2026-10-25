@@ -292,6 +292,10 @@ class Tab: NSObject,
     var desiredProxyRoute: ProxyRoute?
     /// Manual per-tab override chosen from the main menu, taking precedence over the routing rules.
     var proxyRouteOverride: ProxyRoute?
+    /// Guards against overlapping rebuilds while a navigation is in flight.
+    var isReroutingProxyRoute = false
+    /// Debounces reroute loops when a site keeps moving between routes.
+    var lastProxyRerouteAt: Date?
     weak var tabDelegate: LegacyTabDelegate?
     var loginAlert: SaveLoginAlert?
     var lastExecutedTime: Timestamp
