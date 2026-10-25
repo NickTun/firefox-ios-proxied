@@ -72,8 +72,8 @@ final class ProxySettingsViewController: SettingsTableViewController {
     private func routingSection(settings: ProxySettings) -> SettingSection {
         let modeTitle: String
         switch settings.routingMode {
-        case .allTraffic: modeTitle = "All traffic"
-        case .rules: modeTitle = "Rules (domains + GeoIP)"
+        case .allTraffic: modeTitle = "Proxy everything"
+        case .rules: modeTitle = "Bypass domains + GeoIP"
         }
         let mode = ClosureSetting(
             title: "Routing",
@@ -84,8 +84,9 @@ final class ProxySettingsViewController: SettingsTableViewController {
 
         return SettingSection(
             footerTitle: NSAttributedString(
-                string: "Rules send a tab through the proxy when its site matches the lists below or " +
-                        "the selected countries. Everything else is loaded directly."
+                string: "Every tab goes through the proxy by default. With bypass rules a tab is loaded " +
+                        "directly when its site matches the bypass domains or a selected country, unless " +
+                        "the domain is listed as a proxy exception."
             ),
             children: [mode]
         )
@@ -122,32 +123,29 @@ final class ProxySettingsViewController: SettingsTableViewController {
 
         return SettingSection(
             footerTitle: NSAttributedString(
-                string: "Countries are matched with public per-country IPv4 ranges. IPv6 is not matched " +
-                        "and falls back to the direct route."
+                string: "Sites whose IPv4 address belongs to a selected country are loaded directly. " +
+                        "Data is downloaded when a country is selected. IPv6 is not matched and stays " +
+                        "on the proxy."
             ),
             children: [countriesSetting, update]
         )
     }
 
     private func domainsSection(profile: Profile, settings: ProxySettings) -> SettingSection {
-        let proxyEntries = settings.proxyDomainsText
-            .components(separatedBy: .newlines)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-        let excludedEntries = settings.excludedDomainsText
-            .components(separatedBy: .newlines)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        let bypassEntries = Self.entries(in: settings.bypassDomainsText)
+        let exceptionEntries = Self.entries(in: settings.proxyExceptionsText)
 
-        let proxyDomains = ClosureSetting(
-            title: "Proxy domains",
-            statusText: Self.entryCount(proxyEntries.count),
+        let bypassDomains = ClosureSetting(
+            title: "Bypass domains",
+            statusText: Self.entryCount(bypassEntries.count),
             handler: { [weak self] navigationController in
                 self?.presentDomainEditor(
-                    title: "Proxy domains",
-                    footer: "One domain per line. Subdomains are included.",
-                    text: settings.proxyDomainsText,
+                    title: "Bypass domains",
+                    footer: "One domain per line. These are loaded directly, subdomains included.",
+                    text: settings.bypassDomainsText,
                     onSave: { [weak self] text in
                         guard let self, let profile = self.profile else { return }
-                        ProxySettings(prefs: profile.prefs).update(proxyDomainsText: text)
+                        ProxySettings(prefs: profile.prefs).update(bypassDomainsText: text)
                         Task { @MainActor in
                             await ProxyManager.shared.reconfigureRouting()
                             self.refreshSettings()
@@ -157,19 +155,19 @@ final class ProxySettingsViewController: SettingsTableViewController {
                 )
             }
         )
-        proxyDomains.enabled = ProxyManager.isSupported
+        bypassDomains.enabled = ProxyManager.isSupported
 
-        let excludedDomains = ClosureSetting(
-            title: "Direct domains",
-            statusText: Self.entryCount(excludedEntries.count),
+        let proxyExceptions = ClosureSetting(
+            title: "Proxy exceptions",
+            statusText: Self.entryCount(exceptionEntries.count),
             handler: { [weak self] navigationController in
                 self?.presentDomainEditor(
-                    title: "Direct domains",
-                    footer: "Always loaded directly, even when a country or the proxy list matches.",
-                    text: settings.excludedDomainsText,
+                    title: "Proxy exceptions",
+                    footer: "Always loaded through the proxy, even when a bypass domain or country matches.",
+                    text: settings.proxyExceptionsText,
                     onSave: { [weak self] text in
                         guard let self, let profile = self.profile else { return }
-                        ProxySettings(prefs: profile.prefs).update(excludedDomainsText: text)
+                        ProxySettings(prefs: profile.prefs).update(proxyExceptionsText: text)
                         Task { @MainActor in
                             await ProxyManager.shared.reconfigureRouting()
                             self.refreshSettings()
@@ -179,13 +177,13 @@ final class ProxySettingsViewController: SettingsTableViewController {
                 )
             }
         )
-        excludedDomains.enabled = ProxyManager.isSupported
+        proxyExceptions.enabled = ProxyManager.isSupported
 
         return SettingSection(
             footerTitle: NSAttributedString(
-                string: "Exceptions win over the proxy domains, proxy domains win over the countries."
+                string: "Exceptions win over bypass domains, bypass domains win over the countries."
             ),
-            children: [proxyDomains, excludedDomains]
+            children: [bypassDomains, proxyExceptions]
         )
     }
 
@@ -194,10 +192,10 @@ final class ProxySettingsViewController: SettingsTableViewController {
     private func presentRoutingModePicker() {
         guard profile != nil else { return }
         let alert = UIAlertController(title: "Routing", message: nil, preferredStyle: .actionSheet)
-        alert.addAction(UIAlertAction(title: "All traffic", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: "Proxy everything", style: .default) { [weak self] _ in
             self?.setRoutingMode(.allTraffic)
         })
-        alert.addAction(UIAlertAction(title: "Rules (domains + GeoIP)", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: "Bypass domains + GeoIP", style: .default) { [weak self] _ in
             self?.setRoutingMode(.rules)
         })
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
@@ -314,6 +312,12 @@ final class ProxySettingsViewController: SettingsTableViewController {
         formatter.timeStyle = .short
         return formatter
     }()
+
+    private static func entries(in text: String) -> [String] {
+        return text
+            .components(separatedBy: .newlines)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+    }
 
     private static func entryCount(_ count: Int) -> String {
         switch count {

@@ -93,8 +93,8 @@ final class ProxyRoutingService {
             }
         }
         let rules = ProxyRoutingRules(mode: settings.routingMode,
-                                      proxyDomains: settings.proxyDomains,
-                                      excludedDomains: settings.excludedDomains,
+                                      bypassDomains: settings.bypassDomains,
+                                      proxyExceptions: settings.proxyExceptions,
                                       countryRanges: ranges)
         rulesCache = rules
         return rules
@@ -103,8 +103,8 @@ final class ProxyRoutingService {
     private func domainOnlyRules() -> ProxyRoutingRules {
         let settings = self.settings
         return ProxyRoutingRules(mode: settings.routingMode,
-                                 proxyDomains: settings.proxyDomains,
-                                 excludedDomains: settings.excludedDomains,
+                                 bypassDomains: settings.bypassDomains,
+                                 proxyExceptions: settings.proxyExceptions,
                                  countryRanges: [])
     }
 

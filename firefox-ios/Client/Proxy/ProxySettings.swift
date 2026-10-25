@@ -13,8 +13,8 @@ struct ProxySettings {
         static let host = "proxy.host"
         static let port = "proxy.port"
         static let routingMode = "proxy.routingMode"
-        static let proxyDomains = "proxy.proxyDomains"
-        static let excludedDomains = "proxy.excludedDomains"
+        static let bypassDomains = "proxy.bypassDomains"
+        static let proxyExceptions = "proxy.proxyExceptions"
         static let countries = "proxy.countries"
         static let geoIPUpdatedAt = "proxy.geoipUpdatedAt"
     }
@@ -60,34 +60,36 @@ struct ProxySettings {
 
     var routingMode: ProxyRoutingMode {
         get {
-            guard let rawValue = prefs.stringForKey(Key.routingMode) else { return .allTraffic }
-            return ProxyRoutingMode(rawValue: rawValue) ?? .allTraffic
+            guard let rawValue = prefs.stringForKey(Key.routingMode) else { return .rules }
+            return ProxyRoutingMode(rawValue: rawValue) ?? .rules
         }
         nonmutating set { prefs.setString(newValue.rawValue, forKey: Key.routingMode) }
     }
 
-    var proxyDomainsText: String {
-        return prefs.stringForKey(Key.proxyDomains) ?? ""
+    /// Domains that are loaded directly instead of through the proxy.
+    var bypassDomainsText: String {
+        return prefs.stringForKey(Key.bypassDomains) ?? ""
     }
 
-    var excludedDomainsText: String {
-        return prefs.stringForKey(Key.excludedDomains) ?? ""
+    /// Domains that always use the proxy, even when a bypass rule matches.
+    var proxyExceptionsText: String {
+        return prefs.stringForKey(Key.proxyExceptions) ?? ""
     }
 
-    var proxyDomains: ProxyDomainList {
-        return ProxyDomainList(text: proxyDomainsText)
+    var bypassDomains: ProxyDomainList {
+        return ProxyDomainList(text: bypassDomainsText)
     }
 
-    var excludedDomains: ProxyDomainList {
-        return ProxyDomainList(text: excludedDomainsText)
+    var proxyExceptions: ProxyDomainList {
+        return ProxyDomainList(text: proxyExceptionsText)
     }
 
-    func update(proxyDomainsText: String) {
-        prefs.setString(proxyDomainsText, forKey: Key.proxyDomains)
+    func update(bypassDomainsText: String) {
+        prefs.setString(bypassDomainsText, forKey: Key.bypassDomains)
     }
 
-    func update(excludedDomainsText: String) {
-        prefs.setString(excludedDomainsText, forKey: Key.excludedDomains)
+    func update(proxyExceptionsText: String) {
+        prefs.setString(proxyExceptionsText, forKey: Key.proxyExceptions)
     }
 
     // MARK: - GeoIP

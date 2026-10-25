@@ -80,47 +80,51 @@ final class ProxyRoutingRulesTests: XCTestCase {
         XCTAssertEqual(subject.route(forHost: "example.com", ipv4: nil), .proxied)
     }
 
-    func testRulesDefaultToDirect() {
+    func testRulesProxyByDefault() {
         let subject = ProxyRoutingRules(mode: .rules)
-
-        XCTAssertEqual(subject.route(forHost: "example.com", ipv4: nil), .direct)
-    }
-
-    func testExclusionsWinOverEverything() {
-        let subject = ProxyRoutingRules(mode: .rules,
-                                        proxyDomains: ProxyDomainList(domains: ["example.com"]),
-                                        excludedDomains: ProxyDomainList(domains: ["bank.example.com"]),
-                                        countryRanges: [germanRange])
-
-        XCTAssertEqual(subject.route(forHost: "bank.example.com", ipv4: ipInGermany), .direct)
-        XCTAssertEqual(subject.route(forHost: "www.example.com", ipv4: nil), .proxied)
-    }
-
-    func testProxyDomainWinsOverGeoIP() {
-        let subject = ProxyRoutingRules(mode: .rules,
-                                        proxyDomains: ProxyDomainList(domains: ["example.com"]),
-                                        countryRanges: [germanRange])
 
         XCTAssertEqual(subject.route(forHost: "example.com", ipv4: nil), .proxied)
     }
 
-    func testGeoIPRouting() {
+    func testProxyExceptionsWinOverBypassRules() {
+        let subject = ProxyRoutingRules(mode: .rules,
+                                        bypassDomains: ProxyDomainList(domains: ["example.com"]),
+                                        proxyExceptions: ProxyDomainList(domains: ["bank.example.com"]),
+                                        countryRanges: [germanRange])
+
+        XCTAssertEqual(subject.route(forHost: "bank.example.com", ipv4: ipInGermany), .proxied)
+        XCTAssertEqual(subject.route(forHost: "www.example.com", ipv4: nil), .direct)
+    }
+
+    func testBypassDomainWinsOverGeoIP() {
+        let subject = ProxyRoutingRules(mode: .rules,
+                                        bypassDomains: ProxyDomainList(domains: ["example.com"]),
+                                        countryRanges: [germanRange])
+
+        XCTAssertEqual(subject.route(forHost: "example.com", ipv4: ipInGermany), .direct)
+    }
+
+    func testGeoIPBypassesProxy() {
         let subject = ProxyRoutingRules(mode: .rules, countryRanges: [germanRange])
 
-        XCTAssertEqual(subject.route(forHost: "example.com", ipv4: ipInGermany), .proxied)
+        XCTAssertEqual(subject.route(forHost: "example.com", ipv4: ipInGermany), .direct)
         XCTAssertEqual(subject.route(forHost: "example.com", ipv4: CountryCIDRRanges.parseIPv4("8.8.8.8")),
-                       .direct)
+                       .proxied)
     }
 
     func testResolutionNeededOnlyInRulesMode() {
         let rules = ProxyRoutingRules(mode: .rules, countryRanges: [germanRange])
         let allTraffic = ProxyRoutingRules(mode: .allTraffic, countryRanges: [germanRange])
         let decidedByDomain = ProxyRoutingRules(mode: .rules,
-                                                proxyDomains: ProxyDomainList(domains: ["example.com"]),
+                                                bypassDomains: ProxyDomainList(domains: ["example.com"]),
                                                 countryRanges: [germanRange])
+        let excepted = ProxyRoutingRules(mode: .rules,
+                                         proxyExceptions: ProxyDomainList(domains: ["example.com"]),
+                                         countryRanges: [germanRange])
 
         XCTAssertTrue(rules.requiresResolution(forHost: "example.com"))
         XCTAssertFalse(allTraffic.requiresResolution(forHost: "example.com"))
         XCTAssertFalse(decidedByDomain.requiresResolution(forHost: "example.com"))
+        XCTAssertFalse(excepted.requiresResolution(forHost: "example.com"))
     }
 }

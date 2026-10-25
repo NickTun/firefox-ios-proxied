@@ -15,9 +15,10 @@ public enum ProxyRoute: String, Sendable, Hashable, CaseIterable {
 
 /// How the route for a tab is decided.
 public enum ProxyRoutingMode: String, Sendable, CaseIterable {
-    /// Every tab is routed through the proxy. Equivalent to the original browser wide toggle.
+    /// Every tab is routed through the proxy, the lists below are ignored.
     case allTraffic
 
-    /// Only tabs whose URL matches the rules (domain lists and countries) are proxied.
+    /// Tabs are proxied by default and loaded directly when their site matches the bypass domains
+    /// or a selected country, unless the domain is listed as a proxy exception.
     case rules
 }

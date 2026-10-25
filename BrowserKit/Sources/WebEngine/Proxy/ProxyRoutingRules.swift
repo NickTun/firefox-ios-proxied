@@ -6,22 +6,22 @@ import Foundation
 
 /// Decides the proxy route for a host.
 ///
-/// Precedence while in `rules` mode: excluded domains win over everything, then explicitly proxied
-/// domains, then the selected countries, and the default route is direct. In `allTraffic` mode every
-/// host is proxied.
+/// Traffic is proxied by default. In `rules` mode a host is loaded directly when it matches the
+/// bypass domain list or one of the selected countries. Proxy exceptions always win and keep the
+/// host on the proxy, even when it would otherwise be bypassed.
 public struct ProxyRoutingRules: Sendable, Equatable {
     public var mode: ProxyRoutingMode
-    public var proxyDomains: ProxyDomainList
-    public var excludedDomains: ProxyDomainList
+    public var bypassDomains: ProxyDomainList
+    public var proxyExceptions: ProxyDomainList
     public var countryRanges: [CountryCIDRRanges]
 
     public init(mode: ProxyRoutingMode,
-                proxyDomains: ProxyDomainList = .empty,
-                excludedDomains: ProxyDomainList = .empty,
+                bypassDomains: ProxyDomainList = .empty,
+                proxyExceptions: ProxyDomainList = .empty,
                 countryRanges: [CountryCIDRRanges] = []) {
         self.mode = mode
-        self.proxyDomains = proxyDomains
-        self.excludedDomains = excludedDomains
+        self.bypassDomains = bypassDomains
+        self.proxyExceptions = proxyExceptions
         self.countryRanges = countryRanges
     }
 
@@ -31,22 +31,25 @@ public struct ProxyRoutingRules: Sendable, Equatable {
             return .proxied
 
         case .rules:
-            if excludedDomains.matches(host) {
+            if proxyExceptions.matches(host) {
+                return .proxied
+            }
+            if bypassDomains.matches(host) {
                 return .direct
             }
-            if proxyDomains.matches(host) {
-                return .proxied
-            }
             if let ipv4, countryRanges.contains(where: { $0.contains(ipv4: ipv4) }) {
-                return .proxied
+                return .direct
             }
-            return .direct
+            return .proxied
         }
     }
 
     /// Whether a route decision can be made without resolving the host name.
     public func requiresResolution(forHost host: String) -> Bool {
         guard mode == .rules else { return false }
-        return !excludedDomains.matches(host) && !proxyDomains.matches(host) && !countryRanges.isEmpty
+        if proxyExceptions.matches(host) || bypassDomains.matches(host) {
+            return false
+        }
+        return !countryRanges.isEmpty
     }
 }
