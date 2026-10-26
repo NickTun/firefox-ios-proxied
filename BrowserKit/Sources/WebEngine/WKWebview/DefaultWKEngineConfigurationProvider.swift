@@ -162,7 +162,7 @@ public struct DefaultWKEngineConfigurationProvider: WKEngineConfigurationProvide
     /// Number of network configurations currently applied to the proxied store.
     @available(iOS 17.0, *)
     public static func appliedProxyConfigurationCount() -> Int {
-        return proxiedStore?.proxyConfigurations?.count ?? 0
+        return proxiedStore?.proxyConfigurations.count ?? 0
     }
 
     /// Every store that may hold browsing data, including private stores when a private session is open.
