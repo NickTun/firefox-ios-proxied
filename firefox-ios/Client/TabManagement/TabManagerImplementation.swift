@@ -1186,10 +1186,14 @@ final class TabManagerImplementation: NSObject,
         updateLastExecutedTime: Bool
     ) {
         MainActor.assertIsolated("Expected to be called only on main actor.")
-        tab.proxyRoute = proxyRoute(for: tab.url)
-        ProxyRoutingLog.shared.add("restore tab \(tab.proxyRoute.rawValue) \(tab.url?.host ?? "no url")")
+        let resolvedRoute = proxyRoute(for: tab.url)
+        if tab.webView == nil {
+            tab.proxyRoute = resolvedRoute
+        }
+        let route = tab.webView == nil ? resolvedRoute : tab.proxyRoute
+        ProxyRoutingLog.shared.add("restore tab \(route.rawValue) live=\(tab.webView != nil) \(tab.url?.host ?? "no url")")
         let configuration = tabConfigurationProvider.configuration(isPrivate: tab.isPrivate,
-                                                                  route: tab.proxyRoute).webViewConfiguration
+                                                                  route: route).webViewConfiguration
         selectedTab?.createWebview(with: sessionData, configuration: configuration)
 
         if updateLastExecutedTime {
@@ -1439,12 +1443,19 @@ final class TabManagerImplementation: NSObject,
             return false
         }
 
+        // A background tab keeps the web view it already has, so its recorded route must keep
+        // describing that web view. The desired route is remembered and applied on selection.
+        guard force || tab === selectedTab else {
+            tab.desiredProxyRoute = route
+            ProxyRoutingLog.shared.add("defer rebuild \(route.rawValue) for \(url.host ?? "?")")
+            return false
+        }
+
         tab.proxyRoute = route
         tab.desiredProxyRoute = nil
         logger.log("Re-routing tab to \(route.rawValue) for \(url.host ?? "")",
                    level: .info,
                    category: .tabs)
-        guard force || tab === selectedTab else { return false }
 
         tab.isReroutingProxyRoute = true
         tab.lastProxyRerouteAt = Date()
@@ -1503,7 +1514,8 @@ final class TabManagerImplementation: NSObject,
                      afterTab: parentTab,
                      flushToDisk: true,
                      zombie: false,
-                     isPopup: true)
+                     isPopup: true,
+                     preferredRoute: parentTab.proxyRoute)
 
         return popup
     }
@@ -1515,7 +1527,8 @@ final class TabManagerImplementation: NSObject,
         afterTab parent: Tab? = nil,
         flushToDisk: Bool,
         zombie: Bool,
-        isPopup: Bool = false
+        isPopup: Bool = false,
+        preferredRoute: ProxyRoute? = nil
     ) {
         assert(Thread.isMainThread)
         // If network is not available webView(_:didCommit:) is not going to be called
@@ -1541,7 +1554,7 @@ final class TabManagerImplementation: NSObject,
 
         // Create the webview right away for tabs that are not zombies
         if !zombie {
-            tab.proxyRoute = proxyRoute(for: tab.url)
+            tab.proxyRoute = preferredRoute ?? proxyRoute(for: tab.url)
             ProxyRoutingLog.shared.add("create tab \(tab.proxyRoute.rawValue) \(tab.url?.host ?? "no url")")
             let configuration = tabConfigurationProvider.configuration(isPrivate: tab.isPrivate,
                                                                       route: tab.proxyRoute).webViewConfiguration
