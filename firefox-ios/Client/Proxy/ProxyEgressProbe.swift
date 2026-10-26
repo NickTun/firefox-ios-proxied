@@ -11,10 +11,17 @@ import WebKit
 @MainActor
 final class ProxyEgressProbe {
     static func run() async -> String {
-        guard #available(iOS 17.0, *), let store = DefaultWKEngineConfigurationProvider.proxiedDataStore else {
+        guard #available(iOS 17.0, *), let proxiedStore = DefaultWKEngineConfigurationProvider.proxiedDataStore else {
             return "proxied store is unavailable on this system"
         }
 
+        let direct = await egress(store: DefaultWKEngineConfigurationProvider.directDataStore)
+        let proxied = await egress(store: proxiedStore)
+        let verdict = direct == proxied ? "SAME ADDRESS: proxy is not effective" : "different addresses: proxy works"
+        return "direct egress: \(direct)\nproxied egress: \(proxied)\n\(verdict)"
+    }
+
+    private static func egress(store: WKWebsiteDataStore) async -> String {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = store
         let webView = WKWebView(frame: .zero, configuration: configuration)
@@ -25,9 +32,9 @@ final class ProxyEgressProbe {
             if let value = try? await webView.evaluateJavaScript("document.body.innerText"),
                let text = value as? String,
                !text.isEmpty {
-                return "proxied egress: \(text)"
+                return text
             }
         }
-        return "proxied egress: no answer (proxy unreachable or blocked)"
+        return "no answer (unreachable or blocked)"
     }
 }

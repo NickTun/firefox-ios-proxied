@@ -149,6 +149,11 @@ public struct DefaultWKEngineConfigurationProvider: WKEngineConfigurationProvide
         applyProxyConfigurations([], forcingSessionReset: forcingSessionReset)
     }
 
+    /// Store used for the direct route, exposed for the in-app proxy self test.
+    public static var directDataStore: WKWebsiteDataStore {
+        return directStore
+    }
+
     /// Store used for the proxied route, exposed for the in-app proxy self test.
     public static var proxiedDataStore: WKWebsiteDataStore? {
         return proxiedStore
