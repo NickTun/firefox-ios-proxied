@@ -542,6 +542,9 @@ class Tab: NSObject,
         guard webView == nil else { return }
 
         let requiredConfiguration = requiredPopupConfiguration ?? configuration
+        // The pinned popup configuration is only needed for the initial creation; keeping it would
+        // pin the opener's data store for every later rebuild of this tab.
+        requiredPopupConfiguration = nil
         // Ensures we inject scripts into a new content controller
         requiredConfiguration.userContentController = .init()
         self.configuration = requiredConfiguration
