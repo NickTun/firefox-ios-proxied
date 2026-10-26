@@ -1413,6 +1413,8 @@ extension BrowserViewController: WKNavigationDelegate {
             tab.adsProviderName = ""
         }
 
+        updateBlurViews()
+
         // When tab url changes after web content starts loading on the page
         // We notify the content blocker change so that content blocker status
         // can be correctly shown on beside the URL bar
