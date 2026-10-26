@@ -149,6 +149,17 @@ public struct DefaultWKEngineConfigurationProvider: WKEngineConfigurationProvide
         applyProxyConfigurations([], forcingSessionReset: forcingSessionReset)
     }
 
+    /// Store used for the proxied route, exposed for the in-app proxy self test.
+    public static var proxiedDataStore: WKWebsiteDataStore? {
+        return proxiedStore
+    }
+
+    /// Number of network configurations currently applied to the proxied store.
+    @available(iOS 17.0, *)
+    public static func appliedProxyConfigurationCount() -> Int {
+        return proxiedStore?.proxyConfigurations?.count ?? 0
+    }
+
     /// Every store that may hold browsing data, including private stores when a private session is open.
     public static func allDataStores() -> [WKWebsiteDataStore] {
         return [directStore, proxiedStore, nonPersistentDirectStore, nonPersistentProxiedStore]

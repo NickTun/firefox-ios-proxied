@@ -121,6 +121,11 @@ final class ProxyRoutingService {
         var lines: [String] = []
 
         lines.append("Proxy enabled: \(settings.isEnabled ? "yes" : "no")")
+        lines.append("Proxy server: \(settings.endpoint?.displayName ?? "not configured")")
+        if #available(iOS 17.0, *) {
+            let applied = DefaultWKEngineConfigurationProvider.appliedProxyConfigurationCount()
+            lines.append("Applied proxy stack entries: \(applied)")
+        }
         lines.append("iOS 17+ supported: \(ProxyManager.isSupported ? "yes" : "no")")
         lines.append("Mode: \(settings.routingMode.rawValue)")
         if settings.isDoHEnabled {

@@ -242,11 +242,20 @@ final class ProxySettingsViewController: SettingsTableViewController {
         )
         diagnose.enabled = ProxyManager.isSupported
 
+        let egress = ClosureSetting(
+            title: "Test proxy egress",
+            statusText: "Loads an IP echo page through the proxy",
+            showsDisclosure: false,
+            handler: { [weak self] _ in self?.runEgressProbe() }
+        )
+        egress.enabled = ProxyManager.isSupported
+
         return SettingSection(
             footerTitle: NSAttributedString(
-                string: "Shows what the router decides for the page in the current tab."
+                string: "Route check shows what the router decides for the current tab. Egress check " +
+                        "loads an IP echo page through the proxied store to verify the proxy itself."
             ),
-            children: [diagnose]
+            children: [diagnose, egress]
         )
     }
 
@@ -261,6 +270,14 @@ final class ProxySettingsViewController: SettingsTableViewController {
         Task { @MainActor in
             let text = await ProxyRoutingService.shared.diagnostics(for: url, tabRoute: tabRoute)
             self.presentDiagnosticsAlert(text)
+        }
+    }
+
+    private func runEgressProbe() {
+        Task { @MainActor in
+            let result = await ProxyEgressProbe.run()
+            ProxyRoutingLog.shared.add(result)
+            self.presentDiagnosticsAlert(result)
         }
     }
 
