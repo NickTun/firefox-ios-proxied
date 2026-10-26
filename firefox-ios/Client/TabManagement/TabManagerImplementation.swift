@@ -6,6 +6,7 @@ import Foundation
 import TabDataStore
 import Common
 import Shared
+import WebEngine
 import WebKit
 
 import protocol Storage.DiskImageStore
@@ -1086,6 +1087,14 @@ final class TabManagerImplementation: NSObject,
             updateLastExecutedTime: updateLastExecutedTime
         )
 
+        // A background tab may have been resolved to the other proxy route while it was hidden; the
+        // web view still lives in the old data store until it is rebuilt here.
+        if let desired = tab.desiredProxyRoute, desired != tab.proxyRoute, let url = tab.url {
+            Task { @MainActor [weak self] in
+                _ = await self?.rerouteTabIfNeeded(tab: tab, url: url)
+            }
+        }
+
         themeManager.setPrivateTheme(isOn: tab.isPrivate, for: windowUUID)
 
         let action = PrivateModeAction(isPrivate: tab.isPrivate,
@@ -1177,7 +1186,15 @@ final class TabManagerImplementation: NSObject,
         updateLastExecutedTime: Bool
     ) {
         MainActor.assertIsolated("Expected to be called only on main actor.")
-        let configuration = tabConfigurationProvider.configuration(isPrivate: tab.isPrivate).webViewConfiguration
+        let resolvedRoute = proxyRoute(for: tab.url)
+        let canCreateWebView = tab.webView == nil && !tab.isReroutingProxyRoute
+        if canCreateWebView {
+            tab.proxyRoute = resolvedRoute
+        }
+        let route = canCreateWebView ? resolvedRoute : tab.proxyRoute
+        ProxyRoutingLog.shared.add("restore tab \(route.rawValue) live=\(tab.webView != nil) \(tab.url?.host ?? "no url")")
+        let configuration = tabConfigurationProvider.configuration(isPrivate: tab.isPrivate,
+                                                                  route: route).webViewConfiguration
         selectedTab?.createWebview(with: sessionData, configuration: configuration)
 
         if updateLastExecutedTime {
@@ -1346,6 +1363,151 @@ final class TabManagerImplementation: NSObject,
         }
     }
 
+    func rerouteTabIfNeeded(tab: Tab, url: URL) async -> Bool {
+        guard ProxyManager.isSupported,
+              ProxySettings(prefs: profile.prefs).isEnabled,
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https"
+        else { return false }
+
+        guard !tab.isReroutingProxyRoute else { return false }
+
+        let desired: ProxyRoute
+        if let override = tab.proxyRouteOverride {
+            desired = override
+        } else {
+            desired = await ProxyRoutingService.shared.route(for: url)
+        }
+        tab.desiredProxyRoute = desired
+        ProxyRoutingLog.shared.add("route \(desired.rawValue) vs \(tab.proxyRoute.rawValue) for \(url.host ?? "?")")
+        guard desired != tab.proxyRoute else { return false }
+        return await applyProxyRoute(desired, to: tab, url: url)
+    }
+
+    func setProxyRouteOverride(_ override: ProxyRoute?, for tab: Tab) async {
+        tab.proxyRouteOverride = override
+        ProxyRoutingLog.shared.add("override -> \(override?.rawValue ?? "auto")")
+        // The tab URL can be stale or empty while a redirect is in flight, so fall back to the URL the
+        // web view is actually showing.
+        guard let url = tab.url ?? tab.webView?.url,
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https"
+        else { return }
+        _ = await rerouteTabIfNeeded(tab: tab, url: url)
+    }
+
+    func shouldPreflightProxyRoute(tab: Tab, url: URL) -> Bool {
+        guard ProxyManager.isSupported,
+              ProxySettings(prefs: profile.prefs).isEnabled,
+              tab === selectedTab,
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https"
+        else { return false }
+
+        let settings = ProxySettings(prefs: profile.prefs)
+        if tab.proxyRouteOverride != nil {
+            return true
+        }
+        guard settings.routingMode == .rules else { return false }
+        if ProxyRoutingService.shared.cachedRoute(for: url) != tab.proxyRoute {
+            return true
+        }
+        return !ProxyRoutingService.shared.hasResolvedRoute(for: url)
+    }
+
+    func resolvedProxyRoute(tab: Tab, url: URL) async -> ProxyRoute? {
+        guard tab === selectedTab else { return nil }
+        if let override = tab.proxyRouteOverride {
+            return override != tab.proxyRoute ? override : nil
+        }
+        let route = await ProxyRoutingService.shared.route(for: url)
+        return route != tab.proxyRoute ? route : nil
+    }
+
+    func applyProxyRoute(tab: Tab, route: ProxyRoute, url: URL) async {
+        ProxyRoutingLog.shared.add("preflight apply \(route.rawValue) for \(url.host ?? "?")")
+        // This path already cancelled a navigation, so it must not be debounced: skipping the rebuild
+        // would leave the tab blank.
+        _ = await applyProxyRoute(route, to: tab, url: url, force: true, bypassDebounce: true)
+    }
+
+    private func applyProxyRoute(_ route: ProxyRoute,
+                                 to tab: Tab,
+                                 url: URL,
+                                 force: Bool = false,
+                                 bypassDebounce: Bool = false) async -> Bool {
+        guard !tab.isReroutingProxyRoute else { return false }
+        if !bypassDebounce,
+           let last = tab.lastProxyRerouteAt,
+           Date().timeIntervalSince(last) < 2 {
+            // A site that keeps bouncing between routes would otherwise reload in a loop.
+            return false
+        }
+
+        // A background tab keeps the web view it already has, so its recorded route must keep
+        // describing that web view. The desired route is remembered and applied on selection.
+        guard force || tab === selectedTab else {
+            tab.desiredProxyRoute = route
+            ProxyRoutingLog.shared.add("defer rebuild \(route.rawValue) for \(url.host ?? "?")")
+            return false
+        }
+
+        tab.proxyRoute = route
+        tab.desiredProxyRoute = nil
+        logger.log("Re-routing tab to \(route.rawValue) for \(url.host ?? "")",
+                   level: .info,
+                   category: .tabs)
+
+        tab.isReroutingProxyRoute = true
+        tab.lastProxyRerouteAt = Date()
+        defer { tab.isReroutingProxyRoute = false }
+
+        ProxyRoutingLog.shared.add("rebuild tab -> \(route.rawValue) for \(url.host ?? url.absoluteString)")
+        // Point the tab at the navigation URL first: anything that reacts to the web view being
+        // recreated (selection handling, restoration) must not reload the previous page.
+        tab.url = url
+
+        // No about:blank hop here: switching the data store does not reset WebKit's network
+        // sessions, and navigating away mid-redirect breaks redirect dependent sites.
+        tab.webView?.stopLoading()
+        await tab.offloadWebView()
+
+        // A tab created as a popup keeps the configuration WebKit handed to the opener, and that
+        // configuration pins the opener's data store. Reusing it would create the rebuilt web view
+        // in the old store while the tab records the new route.
+        tab.requiredPopupConfiguration = nil
+
+        let expectedStore = DefaultWKEngineConfigurationProvider.dataStore(isPrivate: tab.isPrivate,
+                                                                          route: route)
+        let configuration = tabConfigurationProvider.configuration(isPrivate: tab.isPrivate,
+                                                                  route: route).webViewConfiguration
+        tab.createWebview(configuration: configuration)
+
+        if let webView = tab.webView, webView.configuration.websiteDataStore !== expectedStore {
+            ProxyRoutingLog.shared.add("store mismatch after rebuild, rebuilding again")
+            await tab.offloadWebView()
+            let retryConfiguration = tabConfigurationProvider.configuration(isPrivate: tab.isPrivate,
+                                                                           route: route).webViewConfiguration
+            tab.createWebview(configuration: retryConfiguration)
+        }
+
+        if let webView = tab.webView, webView.configuration.websiteDataStore === expectedStore {
+            ProxyRoutingLog.shared.add("rebuild verified \(route.rawValue) store")
+        } else {
+            ProxyRoutingLog.shared.add("rebuild FAILED to reach \(route.rawValue) store")
+        }
+
+        tab.loadRequest(URLRequest(url: url))
+        return true
+    }
+
+    /// Route that can be decided without waiting for DNS. GeoIP decisions that need a lookup are
+    /// refined by `rerouteTabIfNeeded` once the tab committed its navigation.
+    private func proxyRoute(for url: URL?) -> ProxyRoute {
+        guard ProxyManager.isSupported else { return .direct }
+        return ProxyRoutingService.shared.cachedRoute(for: url)
+    }
+
     func restoreSelectedTabForProxyChange() {
         guard let selectedTab,
               let tabUUID = UUID(uuidString: selectedTab.tabUUID)
@@ -1367,13 +1529,17 @@ final class TabManagerImplementation: NSObject,
         // Configure the tab for the child popup webview. In this scenario we need to be sure to pass along
         // the specific `configuration` that we are given by the WKUIDelegate callback, since if we do not
         // use this configuration WebKit will throw an exception.
+        popup.proxyRoute = parentTab.proxyRoute
+        popup.proxyRouteOverride = parentTab.proxyRouteOverride
+        ProxyRoutingLog.shared.add("popup inherits \(parentTab.proxyRoute.rawValue)")
         popup.requiredPopupConfiguration = configuration
         configureTab(popup,
                      request: nil,
                      afterTab: parentTab,
                      flushToDisk: true,
                      zombie: false,
-                     isPopup: true)
+                     isPopup: true,
+                     preferredRoute: parentTab.proxyRoute)
 
         return popup
     }
@@ -1385,7 +1551,8 @@ final class TabManagerImplementation: NSObject,
         afterTab parent: Tab? = nil,
         flushToDisk: Bool,
         zombie: Bool,
-        isPopup: Bool = false
+        isPopup: Bool = false,
+        preferredRoute: ProxyRoute? = nil
     ) {
         assert(Thread.isMainThread)
         // If network is not available webView(_:didCommit:) is not going to be called
@@ -1411,7 +1578,10 @@ final class TabManagerImplementation: NSObject,
 
         // Create the webview right away for tabs that are not zombies
         if !zombie {
-            let configuration = tabConfigurationProvider.configuration(isPrivate: tab.isPrivate).webViewConfiguration
+            tab.proxyRoute = preferredRoute ?? proxyRoute(for: tab.url)
+            ProxyRoutingLog.shared.add("create tab \(tab.proxyRoute.rawValue) \(tab.url?.host ?? "no url")")
+            let configuration = tabConfigurationProvider.configuration(isPrivate: tab.isPrivate,
+                                                                      route: tab.proxyRoute).webViewConfiguration
             tab.createWebview(configuration: configuration)
         }
         tab.navigationDelegate = navigationDelegate

@@ -4466,6 +4466,10 @@ extension BrowserViewController: LegacyTabDelegate {
         tab.addContentScript(blocker, name: FirefoxTabContentBlocker.name())
 
         tab.addContentScript(FocusHelper(tab: tab), name: FocusHelper.name())
+
+        // A rebuilt web view (proxy route switch) is a new scroll view: refresh the toolbar blur so
+        // the top bar keeps its glass background instead of staying clear.
+        updateBlurViews()
     }
 
     private func filterLoginsForCurrentTab(logins: [Login],

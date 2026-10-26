@@ -836,7 +836,8 @@ final class TabManagerMiddleware: FeatureFlaggable, CanRemoveQuickActionBookmark
                     isInReadingList: info.isInReadingList,
                     isPinned: info.isPinned,
                     accountData: accountData,
-                    translationConfiguration: translationConfig
+                    translationConfiguration: translationConfig,
+                    proxyRouteOverride: selectedTab.proxyRouteOverride
                 )
             )
         )

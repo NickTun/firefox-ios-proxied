@@ -570,6 +570,46 @@ extension BrowserViewController: WKNavigationDelegate {
             return
         }
 
+        // Resolve the proxy route before the request is sent. Rebuilding a tab mid-navigation breaks
+        // redirects and one-time URLs, and a site reached through the wrong route may not load at all.
+        let isMainFrameWebURL = navigationAction.targetFrame?.isMainFrame == true
+            && ["http", "https"].contains(url.scheme?.lowercased() ?? "")
+        if isMainFrameWebURL, tabManager.shouldPreflightProxyRoute(tab: tab, url: url) {
+            let handler = decisionHandler
+            Task { @MainActor in
+                if let route = await self.tabManager.resolvedProxyRoute(tab: tab, url: url) {
+                    ProxyRoutingLog.shared.add("preflight cancel \(url.host ?? "?") -> \(route.rawValue)")
+                    handler(.cancel)
+                    // Let WebKit finish cancelling before the tab is rebuilt, otherwise the
+                    // cancellation can restore the previous document over the new load.
+                    await Task.yield()
+                    await self.tabManager.applyProxyRoute(tab: tab, route: route, url: url)
+                } else {
+                    self.handleNavigationAction(navigationAction,
+                                                url: url,
+                                                tab: tab,
+                                                webView: webView,
+                                                decisionHandler: handler)
+                }
+            }
+            return
+        }
+
+        handleNavigationAction(navigationAction,
+                               url: url,
+                               tab: tab,
+                               webView: webView,
+                               decisionHandler: decisionHandler)
+    }
+
+    @MainActor
+    private func handleNavigationAction(
+        _ navigationAction: WKNavigationAction,
+        url: URL,
+        tab: Tab,
+        webView: WKWebView,
+        decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
+    ) {
         if tab == tabManager.selectedTab,
            navigationAction.navigationType == .linkActivated,
            !tab.adsTelemetryUrlList.isEmpty {
@@ -1235,6 +1275,16 @@ extension BrowserViewController: WKNavigationDelegate {
             return
         }
 
+        // A page can fail because it was loaded through the wrong proxy route, for example when the
+        // proxy blocks the site. Retry it in the other data store before showing the error page.
+        if let failingURL = error.userInfo[NSURLErrorFailingURLErrorKey] as? URL,
+           let tab = tabManager[webView] {
+            ProxyRoutingLog.shared.add("fail \(failingURL.host ?? "?") store=\(tab.proxyRoute.rawValue)")
+            Task { @MainActor in
+                _ = await self.tabManager.rerouteTabIfNeeded(tab: tab, url: failingURL)
+            }
+        }
+
         if let url = error.userInfo[NSURLErrorFailingURLErrorKey] as? URL {
             guard var errorPageURLComponents = URLComponents(
                 string: "\(InternalURL.baseUrl)/\(ErrorPageHandler.path)") else {
@@ -1336,6 +1386,12 @@ extension BrowserViewController: WKNavigationDelegate {
         webviewTelemetry.start()
         let previousURL = tab.url
         tab.url = webView.url
+        if let committedURL = webView.url {
+            ProxyRoutingLog.shared.add("commit \(committedURL.host ?? "?") store=\(tab.proxyRoute.rawValue)")
+            Task { @MainActor in
+                _ = await self.tabManager.rerouteTabIfNeeded(tab: tab, url: committedURL)
+            }
+        }
         hideStaleContentOnCrossOriginPopupCommit(for: tab, previousURL: previousURL)
         if let handler = tab.onNextCommit {
             tab.onNextCommit = nil
@@ -1356,6 +1412,8 @@ extension BrowserViewController: WKNavigationDelegate {
             tab.adsTelemetryRedirectUrlList.removeAll()
             tab.adsProviderName = ""
         }
+
+        updateBlurViews()
 
         // When tab url changes after web content starts loading on the page
         // We notify the content blocker change so that content blocker status

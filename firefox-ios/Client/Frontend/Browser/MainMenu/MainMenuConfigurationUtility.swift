@@ -6,6 +6,7 @@ import Common
 import Foundation
 import MenuKit
 import Shared
+import WebEngine
 
 struct MainMenuConfigurationUtility: Equatable, FeatureFlaggable {
     private struct Icons {
@@ -189,6 +190,7 @@ struct MainMenuConfigurationUtility: Equatable, FeatureFlaggable {
     // Account Section
     private func getAccountSection(with uuid: WindowUUID, tabInfo: MainMenuTabInfo, profileImage: UIImage?) -> MenuSection {
         let proxyElement = makeProxyElement(with: uuid, tabInfo: tabInfo)
+        let proxyRouteElement = makeProxyRouteElement(with: uuid, tabInfo: tabInfo)
         return MenuSection(
             isHomepage: tabInfo.isHomepage,
             options: [
@@ -216,6 +218,7 @@ struct MainMenuConfigurationUtility: Equatable, FeatureFlaggable {
                     }
                 ),
                 proxyElement,
+                proxyRouteElement,
                 MenuElement(
                     title: .MainMenu.OtherToolsSection.Settings,
                     iconName: Icons.settings,
@@ -236,6 +239,39 @@ struct MainMenuConfigurationUtility: Equatable, FeatureFlaggable {
                     }
                 ),
         ])
+    }
+
+    private func makeProxyRouteElement(with uuid: WindowUUID, tabInfo: MainMenuTabInfo) -> MenuElement {
+        let override = tabInfo.proxyRouteOverride
+        let summary: String
+        switch override {
+        case .none:
+            summary = "Auto (routing rules)"
+        case .some(.direct):
+            summary = "Direct, set manually"
+        case .some(.proxied):
+            summary = "Proxy, set manually"
+        }
+
+        return MenuElement(
+            title: "Proxy route",
+            description: summary,
+            iconName: Icons.proxy,
+            isEnabled: ProxyManager.isSupported,
+            isActive: override != nil,
+            a11yLabel: "Proxy route, \(summary)",
+            a11yHint: "",
+            a11yId: "MainMenu.proxyRoute",
+            action: {
+                store.dispatch(
+                    MainMenuAction(
+                        windowUUID: uuid,
+                        actionType: MainMenuActionType.tapCycleProxyRoute,
+                        telemetryInfo: TelemetryInfo(isHomepage: tabInfo.isHomepage)
+                    )
+                )
+            }
+        )
     }
 
     private func makeProxyElement(with uuid: WindowUUID, tabInfo: MainMenuTabInfo) -> MenuElement {

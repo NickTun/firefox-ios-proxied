@@ -4,6 +4,7 @@
 
 import Common
 import Foundation
+import WebEngine
 import WebKit
 import TabDataStore
 
@@ -154,6 +155,24 @@ protocol TabManager: AnyObject {
     /// proxy stack is in place, restoring the session saved during teardown so the tab keeps its
     /// back/forward list across the change.
     func restoreSelectedTabForProxyChange()
+
+    /// Rebuilds `tab` in the data store matching the route resolved for `url` when it differs from
+    /// the route the web view was created with. Returns whether the tab was re-routed.
+    @discardableResult
+    func rerouteTabIfNeeded(tab: Tab, url: URL) async -> Bool
+
+    /// Forces `tab` onto `override` (or back to the routing rules when nil) and rebuilds it.
+    func setProxyRouteOverride(_ override: ProxyRoute?, for tab: Tab) async
+
+    /// Whether the route for `url` has to be resolved before the navigation request is sent.
+    func shouldPreflightProxyRoute(tab: Tab, url: URL) -> Bool
+
+    /// Route the tab has to be rebuilt in before loading `url`, or nil when the current store is fine.
+    func resolvedProxyRoute(tab: Tab, url: URL) async -> ProxyRoute?
+
+    /// Rebuilds the tab in the given route's store and loads `url`. Used after cancelling a
+    /// navigation that would have gone to the wrong store.
+    func applyProxyRoute(tab: Tab, route: ProxyRoute, url: URL) async
 
     /// ADR 0008: load `tab`'s screenshot from disk if it isn't already in memory. Intended for
     /// just-in-time loading driven by the tab tray's prefetch data source. No-op if the tab

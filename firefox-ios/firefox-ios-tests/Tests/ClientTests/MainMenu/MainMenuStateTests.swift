@@ -53,7 +53,8 @@ final class MainMenuStateTests: XCTestCase {
             isInReadingList: false,
             isPinned: false,
             accountData: accountData,
-            translationConfiguration: nil
+            translationConfiguration: nil,
+            proxyRouteOverride: nil
         )
 
         XCTAssertNil(initialState.currentTabInfo)

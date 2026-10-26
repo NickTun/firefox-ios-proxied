@@ -6,12 +6,19 @@ import Foundation
 import Shared
 import WebEngine
 
-/// Persisted user configuration of the browser wide HTTP proxy.
+/// Persisted user configuration of the browser wide HTTP proxy and its per tab routing rules.
 struct ProxySettings {
     struct Key {
         static let enabled = "proxy.enabled"
         static let host = "proxy.host"
         static let port = "proxy.port"
+        static let routingMode = "proxy.routingMode"
+        static let bypassDomains = "proxy.bypassDomains"
+        static let proxyExceptions = "proxy.proxyExceptions"
+        static let countries = "proxy.countries"
+        static let geoIPUpdatedAt = "proxy.geoipUpdatedAt"
+        static let dohEnabled = "proxy.dohEnabled"
+        static let dohServer = "proxy.dohServer"
     }
 
     private let prefs: Prefs
@@ -19,6 +26,8 @@ struct ProxySettings {
     init(prefs: Prefs) {
         self.prefs = prefs
     }
+
+    // MARK: - Proxy server
 
     var isEnabled: Bool {
         get { return prefs.boolForKey(Key.enabled) ?? false }
@@ -47,5 +56,91 @@ struct ProxySettings {
     func update(host: String, port: Int) {
         prefs.setString(host.trimmingCharacters(in: .whitespacesAndNewlines), forKey: Key.host)
         prefs.setInt(Int32(port), forKey: Key.port)
+    }
+
+    // MARK: - Routing
+
+    var routingMode: ProxyRoutingMode {
+        get {
+            guard let rawValue = prefs.stringForKey(Key.routingMode) else { return .rules }
+            return ProxyRoutingMode(rawValue: rawValue) ?? .rules
+        }
+        nonmutating set { prefs.setString(newValue.rawValue, forKey: Key.routingMode) }
+    }
+
+    /// Domains that are loaded directly instead of through the proxy.
+    var bypassDomainsText: String {
+        return prefs.stringForKey(Key.bypassDomains) ?? ""
+    }
+
+    /// Domains that always use the proxy, even when a bypass rule matches.
+    var proxyExceptionsText: String {
+        return prefs.stringForKey(Key.proxyExceptions) ?? ""
+    }
+
+    var bypassDomains: ProxyDomainList {
+        return ProxyDomainList(text: bypassDomainsText)
+    }
+
+    var proxyExceptions: ProxyDomainList {
+        return ProxyDomainList(text: proxyExceptionsText)
+    }
+
+    func update(bypassDomainsText: String) {
+        prefs.setString(bypassDomainsText, forKey: Key.bypassDomains)
+    }
+
+    func update(proxyExceptionsText: String) {
+        prefs.setString(proxyExceptionsText, forKey: Key.proxyExceptions)
+    }
+
+    // MARK: - GeoIP
+
+    var countries: [String] {
+        let rawValue = prefs.stringForKey(Key.countries) ?? ""
+        return rawValue
+            .components(separatedBy: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces).uppercased() }
+            .filter { $0.count == 2 }
+    }
+
+    func update(countries: [String]) {
+        let value = countries
+            .map { $0.uppercased() }
+            .filter { $0.count == 2 }
+            .joined(separator: ",")
+        prefs.setString(value, forKey: Key.countries)
+    }
+
+    var geoIPUpdatedAt: Date? {
+        guard let timestamp = prefs.longForKey(Key.geoIPUpdatedAt), timestamp > 0 else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(timestamp))
+    }
+
+    func update(geoIPUpdatedAt date: Date) {
+        prefs.setLong(Int64(date.timeIntervalSince1970), forKey: Key.geoIPUpdatedAt)
+    }
+
+    // MARK: - DoH
+
+    /// Off by default: only needed when the system DNS answers with fake-IP addresses.
+    var isDoHEnabled: Bool {
+        get { return prefs.boolForKey(Key.dohEnabled) ?? false }
+        nonmutating set { prefs.setBool(newValue, forKey: Key.dohEnabled) }
+    }
+
+    var dohServer: String {
+        return prefs.stringForKey(Key.dohServer) ?? ""
+    }
+
+    func update(dohServer: String) {
+        prefs.setString(dohServer, forKey: Key.dohServer)
+    }
+
+    var dohEndpoint: URL? {
+        guard isDoHEnabled else { return nil }
+        let text = dohServer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return DoHResolver.defaultEndpoint }
+        return DoHResolver.endpoint(from: text)
     }
 }

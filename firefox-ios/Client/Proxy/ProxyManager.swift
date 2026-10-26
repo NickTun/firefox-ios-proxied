@@ -25,8 +25,12 @@ final class ProxyManager {
     static func applyPersistedSettings(profile: Profile) {
         guard #available(iOS 17.0, *) else { return }
         let settings = ProxySettings(prefs: profile.prefs)
-        guard settings.isEnabled, let endpoint = settings.endpoint else { return }
+        guard settings.isEnabled, let endpoint = settings.endpoint else {
+            ProxyRoutingLog.shared.add("launch: proxy not applied (enabled=\(settings.isEnabled))")
+            return
+        }
         DefaultWKEngineConfigurationProvider.applyHTTPProxy(endpoint, forcingSessionReset: false)
+        ProxyRoutingLog.shared.add("launch: apply proxy \(endpoint.displayName)")
     }
 
     nonisolated static var isSupported: Bool {
@@ -61,6 +65,14 @@ final class ProxyManager {
         await applyProxyConfiguration(settings: settings)
     }
 
+    /// Rebuilds every web view after the routing rules changed, so tabs pick up their new route.
+    func reconfigureRouting() async {
+        ProxyRoutingService.shared.invalidate()
+        await DoHResolver.shared.invalidate()
+        logger.log("Proxy routing rules changed", level: .info, category: .webview)
+        await rebuildWebViews()
+    }
+
     private func applyProxyConfiguration(settings: ProxySettings) async {
         guard #available(iOS 17.0, *) else { return }
 
@@ -72,11 +84,24 @@ final class ProxyManager {
         if settings.isEnabled, let endpoint = settings.endpoint {
             DefaultWKEngineConfigurationProvider.applyHTTPProxy(endpoint)
             logger.log("HTTP proxy enabled: \(endpoint.displayName)", level: .info, category: .webview)
+            ProxyRoutingLog.shared.add("apply proxy \(endpoint.displayName)")
         } else {
             DefaultWKEngineConfigurationProvider.clearHTTPProxy()
             logger.log("HTTP proxy disabled", level: .info, category: .webview)
+            ProxyRoutingLog.shared.add("proxy stack cleared (enabled=\(settings.isEnabled))")
         }
+        ProxyRoutingService.shared.invalidate()
 
+        for tabManager in tabManagers {
+            tabManager.restoreSelectedTabForProxyChange()
+        }
+    }
+
+    private func rebuildWebViews() async {
+        let tabManagers = tabManagers()
+        for tabManager in tabManagers {
+            await tabManager.tearDownWebViewsForProxyChange()
+        }
         for tabManager in tabManagers {
             tabManager.restoreSelectedTabForProxyChange()
         }

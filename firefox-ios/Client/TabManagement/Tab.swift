@@ -285,6 +285,17 @@ class Tab: NSObject,
 
     var userActivity: NSUserActivity?
     var webView: TabWebView?
+    /// Proxy route this tab's web view was created with. Each route uses its own `WKWebsiteDataStore`.
+    var proxyRoute: ProxyRoute = .direct
+    /// Route resolved for the tab's current URL. When it differs from `proxyRoute`, the web view has
+    /// to be rebuilt; this is reconciled when the tab becomes selected.
+    var desiredProxyRoute: ProxyRoute?
+    /// Manual per-tab override chosen from the main menu, taking precedence over the routing rules.
+    var proxyRouteOverride: ProxyRoute?
+    /// Guards against overlapping rebuilds while a navigation is in flight.
+    var isReroutingProxyRoute = false
+    /// Debounces reroute loops when a site keeps moving between routes.
+    var lastProxyRerouteAt: Date?
     weak var tabDelegate: LegacyTabDelegate?
     var loginAlert: SaveLoginAlert?
     var lastExecutedTime: Timestamp
@@ -531,6 +542,9 @@ class Tab: NSObject,
         guard webView == nil else { return }
 
         let requiredConfiguration = requiredPopupConfiguration ?? configuration
+        // The pinned popup configuration is only needed for the initial creation; keeping it would
+        // pin the opener's data store for every later rebuild of this tab.
+        requiredPopupConfiguration = nil
         // Ensures we inject scripts into a new content controller
         requiredConfiguration.userContentController = .init()
         self.configuration = requiredConfiguration

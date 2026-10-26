@@ -6,6 +6,7 @@ import Foundation
 import WebKit
 import Common
 import TabDataStore
+import WebEngine
 import XCTest
 
 @testable import Client
@@ -200,4 +201,20 @@ class MockTabManager: TabManager {
     func discardTabsMovedToAnotherWindow() {
         discardTabsMovedToAnotherWindowCalled += 1
     }
+    func rerouteTabIfNeeded(tab: Tab, url: URL) async -> Bool {
+        return false
+    }
+
+    func setProxyRouteOverride(_ override: ProxyRoute?, for tab: Tab) async {}
+
+    func shouldPreflightProxyRoute(tab: Tab, url: URL) -> Bool {
+        return false
+    }
+
+    func resolvedProxyRoute(tab: Tab, url: URL) async -> ProxyRoute? {
+        return nil
+    }
+
+    func applyProxyRoute(tab: Tab, route: ProxyRoute, url: URL) async {}
+
 }

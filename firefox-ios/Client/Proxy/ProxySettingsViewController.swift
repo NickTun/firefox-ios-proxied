@@ -8,8 +8,10 @@ import Shared
 import UIKit
 import WebEngine
 
-/// Configures the browser wide HTTP proxy used for all web content.
+/// Configures the browser wide HTTP proxy and the per tab routing rules.
 final class ProxySettingsViewController: SettingsTableViewController {
+    private var isUpdatingGeoIP = false
+
     init(profile: Profile, windowUUID: WindowUUID) {
         super.init(style: .grouped, windowUUID: windowUUID)
         self.profile = profile
@@ -24,6 +26,19 @@ final class ProxySettingsViewController: SettingsTableViewController {
         guard let profile else { return [] }
 
         let settings = ProxySettings(prefs: profile.prefs)
+        return [
+            connectionSection(profile: profile, settings: settings),
+            routingSection(settings: settings),
+            geoIPSection(profile: profile, settings: settings),
+            dnsSection(profile: profile, settings: settings),
+            domainsSection(profile: profile, settings: settings),
+            diagnosticsSection()
+        ]
+    }
+
+    // MARK: - Sections
+
+    private func connectionSection(profile: Profile, settings: ProxySettings) -> SettingSection {
         let toggle = BoolSetting(
             prefs: profile.prefs,
             theme: currentTheme(),
@@ -48,21 +63,318 @@ final class ProxySettingsViewController: SettingsTableViewController {
         )
         server.enabled = ProxyManager.isSupported
 
-        let toggleFooter = ProxyManager.isSupported
-            ? "All web content is loaded through this HTTP proxy, including HTTPS which is tunnelled through it. " +
-              "Firefox's own background requests are not affected."
+        let footer = ProxyManager.isSupported
+            ? "All proxied web content goes through this HTTP proxy, including HTTPS which is tunnelled " +
+              "through it with CONNECT. Firefox's own background requests are not affected."
             : "Browser wide proxying requires iOS 17 or later."
-        let serverFooter = "HTTP proxy host and port, for example 192.168.1.10:8080."
 
-        return [
-            SettingSection(footerTitle: NSAttributedString(string: toggleFooter), children: [toggle]),
-            SettingSection(footerTitle: NSAttributedString(string: serverFooter), children: [server])
-        ]
+        return SettingSection(footerTitle: NSAttributedString(string: footer), children: [toggle, server])
     }
 
-    private func refreshSettings() {
-        settings = generateSettings()
-        tableView.reloadData()
+    private func routingSection(settings: ProxySettings) -> SettingSection {
+        let modeTitle: String
+        switch settings.routingMode {
+        case .allTraffic: modeTitle = "Proxy everything"
+        case .rules: modeTitle = "Bypass domains + GeoIP"
+        }
+        let mode = ClosureSetting(
+            title: "Routing",
+            statusText: modeTitle,
+            handler: { [weak self] _ in self?.presentRoutingModePicker() }
+        )
+        mode.enabled = ProxyManager.isSupported
+
+        return SettingSection(
+            footerTitle: NSAttributedString(
+                string: "Every tab goes through the proxy by default. With bypass rules a tab is loaded " +
+                        "directly when its site resolves to a local or fake-IP address, belongs to a " +
+                        "selected country, or matches the bypass domains, unless the domain is listed " +
+                        "as a proxy exception."
+            ),
+            children: [mode]
+        )
+    }
+
+    private func geoIPSection(profile: Profile, settings: ProxySettings) -> SettingSection {
+        let countries = settings.countries
+        let countriesSetting = ClosureSetting(
+            title: "Countries",
+            statusText: countries.isEmpty ? "None" : countries.joined(separator: ", "),
+            handler: { [weak self] navigationController in
+                guard let self, let profile = self.profile else { return }
+                let controller = ProxyCountrySelectionViewController(profile: profile, windowUUID: self.windowUUID)
+                navigationController?.pushViewController(controller, animated: true)
+            }
+        )
+        countriesSetting.enabled = ProxyManager.isSupported
+
+        let missingCountries = countries.filter { !GeoIPDataStore.localDataExists(for: $0) }
+        var updatedText: String
+        if isUpdatingGeoIP {
+            updatedText = "Updating…"
+        } else if let date = settings.geoIPUpdatedAt {
+            updatedText = "Updated \(Self.dateFormatter.string(from: date))"
+        } else {
+            updatedText = "Not downloaded"
+        }
+        if !missingCountries.isEmpty {
+            updatedText += " · no data for \(missingCountries.joined(separator: ", "))"
+        }
+        let update = ClosureSetting(
+            title: "Update GeoIP data",
+            statusText: updatedText,
+            showsDisclosure: false,
+            handler: { [weak self] _ in self?.updateGeoIPData() }
+        )
+        update.enabled = ProxyManager.isSupported && !countries.isEmpty && !isUpdatingGeoIP
+
+        return SettingSection(
+            footerTitle: NSAttributedString(
+                string: "Sites in a selected country are loaded directly. The country is matched by " +
+                        "IPv4/IPv6 address or by the country domain (.ru, .de and so on). When the " +
+                        "system DNS returns fake-IP answers, real addresses are looked up over " +
+                        "DNS-over-HTTPS (Cloudflare). Data is downloaded when a country is selected."
+            ),
+            children: [countriesSetting, update]
+        )
+    }
+
+    private func dnsSection(profile: Profile, settings: ProxySettings) -> SettingSection {
+        let toggle = BoolSetting(
+            prefs: profile.prefs,
+            theme: currentTheme(),
+            prefKey: ProxySettings.Key.dohEnabled,
+            defaultValue: false,
+            titleText: "Resolve GeoIP over DoH",
+            statusText: settings.isDoHEnabled ? "On" : "Off",
+            settingDidChange: { [weak self] _ in
+                Task { @MainActor in
+                    await ProxyManager.shared.reconfigureRouting()
+                    self?.refreshSettings()
+                }
+            }
+        )
+        toggle.enabled = ProxyManager.isSupported
+
+        let serverText = settings.dohServer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "Default (1.1.1.1)"
+            : settings.dohServer
+        let server = ClosureSetting(
+            title: "DoH server",
+            statusText: serverText,
+            handler: { [weak self] _ in self?.presentDoHServerEditor() }
+        )
+        server.enabled = ProxyManager.isSupported && settings.isDoHEnabled
+
+        return SettingSection(
+            footerTitle: NSAttributedString(
+                string: "Only needed when the system DNS answers with fake-IP addresses " +
+                        "(Mihomo/Clash fake-IP mode, some local resolvers). The server must speak " +
+                        "DNS-over-HTTPS (RFC 8484), for example https://1.1.1.1/dns-query. " +
+                        "Off by default; without it countries are matched by domain only."
+            ),
+            children: [toggle, server]
+        )
+    }
+
+    private func domainsSection(profile: Profile, settings: ProxySettings) -> SettingSection {
+        let bypassEntries = Self.entries(in: settings.bypassDomainsText)
+        let exceptionEntries = Self.entries(in: settings.proxyExceptionsText)
+
+        let bypassDomains = ClosureSetting(
+            title: "Bypass domains",
+            statusText: Self.entryCount(bypassEntries.count),
+            handler: { [weak self] navigationController in
+                self?.presentDomainEditor(
+                    title: "Bypass domains",
+                    footer: "One domain per line. These are loaded directly, subdomains included.",
+                    text: settings.bypassDomainsText,
+                    onSave: { [weak self] text in
+                        guard let self, let profile = self.profile else { return }
+                        ProxySettings(prefs: profile.prefs).update(bypassDomainsText: text)
+                        Task { @MainActor in
+                            await ProxyManager.shared.reconfigureRouting()
+                            self.refreshSettings()
+                        }
+                    },
+                    navigationController: navigationController
+                )
+            }
+        )
+        bypassDomains.enabled = ProxyManager.isSupported
+
+        let proxyExceptions = ClosureSetting(
+            title: "Proxy exceptions",
+            statusText: Self.entryCount(exceptionEntries.count),
+            handler: { [weak self] navigationController in
+                self?.presentDomainEditor(
+                    title: "Proxy exceptions",
+                    footer: "Always loaded through the proxy, even when a bypass domain or country matches.",
+                    text: settings.proxyExceptionsText,
+                    onSave: { [weak self] text in
+                        guard let self, let profile = self.profile else { return }
+                        ProxySettings(prefs: profile.prefs).update(proxyExceptionsText: text)
+                        Task { @MainActor in
+                            await ProxyManager.shared.reconfigureRouting()
+                            self.refreshSettings()
+                        }
+                    },
+                    navigationController: navigationController
+                )
+            }
+        )
+        proxyExceptions.enabled = ProxyManager.isSupported
+
+        return SettingSection(
+            footerTitle: NSAttributedString(
+                string: "Exceptions win over bypass domains, bypass domains win over the countries."
+            ),
+            children: [bypassDomains, proxyExceptions]
+        )
+    }
+
+    private func diagnosticsSection() -> SettingSection {
+        let diagnose = ClosureSetting(
+            title: "Diagnose current tab",
+            statusText: "Rules, DNS and the computed route",
+            showsDisclosure: false,
+            handler: { [weak self] _ in self?.presentDiagnostics() }
+        )
+        diagnose.enabled = ProxyManager.isSupported
+
+        let egress = ClosureSetting(
+            title: "Test proxy egress",
+            statusText: "Loads an IP echo page through the proxy",
+            showsDisclosure: false,
+            handler: { [weak self] _ in self?.runEgressProbe() }
+        )
+        egress.enabled = ProxyManager.isSupported
+
+        return SettingSection(
+            footerTitle: NSAttributedString(
+                string: "Route check shows what the router decides for the current tab. Egress check " +
+                        "loads an IP echo page through the proxied store to verify the proxy itself."
+            ),
+            children: [diagnose, egress]
+        )
+    }
+
+    // MARK: - Actions
+
+    private func presentDiagnostics() {
+        guard profile != nil else { return }
+        let windowManager: WindowManager = AppContainer.shared.resolve()
+        let tab = windowManager.tabManager(for: windowUUID)?.selectedTab
+        let url = tab?.url
+        let tabRoute = tab?.proxyRoute
+        Task { @MainActor in
+            let text = await ProxyRoutingService.shared.diagnostics(for: url, tabRoute: tabRoute)
+            self.presentDiagnosticsAlert(text)
+        }
+    }
+
+    private func runEgressProbe() {
+        Task { @MainActor in
+            let result = await ProxyEgressProbe.run()
+            ProxyRoutingLog.shared.add(result)
+            self.presentDiagnosticsAlert(result)
+        }
+    }
+
+    private func presentDiagnosticsAlert(_ text: String) {
+        let fullText = text + "\n\nRecent routing events:\n" + ProxyRoutingLog.shared.text
+        let alert = UIAlertController(title: "Proxy diagnostics", message: fullText, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Copy", style: .default) { _ in
+            UIPasteboard.general.string = fullText
+        })
+        alert.addAction(UIAlertAction(title: "Close", style: .cancel))
+        present(alert, animated: true)
+    }
+
+    private func presentRoutingModePicker() {
+        guard profile != nil else { return }
+        let alert = UIAlertController(title: "Routing", message: nil, preferredStyle: .actionSheet)
+        alert.addAction(UIAlertAction(title: "Proxy everything", style: .default) { [weak self] _ in
+            self?.setRoutingMode(.allTraffic)
+        })
+        alert.addAction(UIAlertAction(title: "Bypass domains + GeoIP", style: .default) { [weak self] _ in
+            self?.setRoutingMode(.rules)
+        })
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
+            popover.permittedArrowDirections = []
+        }
+        present(alert, animated: true)
+    }
+
+    private func setRoutingMode(_ mode: ProxyRoutingMode) {
+        guard let profile else { return }
+        ProxySettings(prefs: profile.prefs).routingMode = mode
+        Task { @MainActor in
+            await ProxyManager.shared.reconfigureRouting()
+            self.refreshSettings()
+        }
+    }
+
+    private func updateGeoIPData() {
+        guard let profile, !isUpdatingGeoIP else { return }
+        let settings = ProxySettings(prefs: profile.prefs)
+        let countries = settings.countries
+        guard !countries.isEmpty else { return }
+
+        isUpdatingGeoIP = true
+        refreshSettings()
+        Task { @MainActor in
+            do {
+                let date = try await GeoIPDataStore.shared.update(countries: countries)
+                settings.update(geoIPUpdatedAt: date)
+            } catch {
+                presentError("Could not update GeoIP data: \(error)")
+            }
+            self.isUpdatingGeoIP = false
+            await ProxyManager.shared.reconfigureRouting()
+            self.refreshSettings()
+        }
+    }
+
+    private func presentDoHServerEditor() {
+        guard let profile else { return }
+        let settings = ProxySettings(prefs: profile.prefs)
+        let alert = UIAlertController(
+            title: "DoH server",
+            message: "DNS-over-HTTPS endpoint. Leave empty for the default.",
+            preferredStyle: .alert
+        )
+        alert.addTextField { field in
+            field.placeholder = "https://1.1.1.1/dns-query"
+            field.text = settings.dohServer
+            field.keyboardType = .URL
+            field.autocapitalizationType = .none
+            field.autocorrectionType = .no
+            field.clearButtonMode = .whileEditing
+            field.accessibilityIdentifier = "ProxySettings.dohServer"
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak self, weak alert] _ in
+            let text = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            self?.saveDoHServer(text)
+        })
+        present(alert, animated: true)
+    }
+
+    private func saveDoHServer(_ text: String) {
+        guard let profile else { return }
+        if !text.isEmpty, DoHResolver.endpoint(from: text) == nil {
+            presentError("Enter a valid HTTPS address, for example https://1.1.1.1/dns-query.")
+            return
+        }
+        ProxySettings(prefs: profile.prefs).update(dohServer: text)
+        Task { @MainActor in
+            await ProxyManager.shared.reconfigureRouting()
+            self.refreshSettings()
+        }
     }
 
     private func presentServerEditor() {
@@ -111,16 +423,56 @@ final class ProxySettingsViewController: SettingsTableViewController {
         }
     }
 
+    private func presentDomainEditor(title: String,
+                                     footer: String,
+                                     text: String,
+                                     onSave: @escaping (String) -> Void,
+                                     navigationController: UINavigationController?) {
+        let controller = ProxyDomainListEditorViewController(title: title, footerText: footer, initialText: text)
+        controller.onSave = onSave
+        navigationController?.pushViewController(controller, animated: true)
+    }
+
     private func presentError(_ message: String) {
-        let alert = UIAlertController(title: "Invalid proxy", message: message, preferredStyle: .alert)
+        let alert = UIAlertController(title: "Proxy", message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "OK", style: .default))
         present(alert, animated: true)
     }
+
+    private func refreshSettings() {
+        settings = generateSettings()
+        tableView.reloadData()
+    }
+
+    // MARK: - Helpers
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    private static func entries(in text: String) -> [String] {
+        return text
+            .components(separatedBy: .newlines)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+    }
+
+    private static func entryCount(_ count: Int) -> String {
+        switch count {
+        case 0: return "None"
+        case 1: return "1 entry"
+        default: return "\(count) entries"
+        }
+    }
 }
 
-/// Setting that forwards taps to a closure, used for rows that open an editor.
+/// Setting that forwards taps to a closure, optionally showing a disclosure indicator or a checkmark.
 final class ClosureSetting: Setting {
     private let statusText: String?
+    private let showsDisclosure: Bool
+    private let isSelected: Bool
     private let handler: (UINavigationController?) -> Void
 
     override var status: NSAttributedString? {
@@ -128,15 +480,23 @@ final class ClosureSetting: Setting {
         return NSAttributedString(string: statusText)
     }
 
+    override var accessoryType: UITableViewCell.AccessoryType {
+        return isSelected ? .checkmark : .none
+    }
+
     override var accessoryView: UIImageView? {
-        guard let theme else { return nil }
+        guard showsDisclosure, !isSelected, let theme else { return nil }
         return SettingDisclosureUtility.buildDisclosureIndicator(theme: theme)
     }
 
     init(title: String,
-         statusText: String?,
+         statusText: String? = nil,
+         showsDisclosure: Bool = true,
+         isSelected: Bool = false,
          handler: @escaping (UINavigationController?) -> Void) {
         self.statusText = statusText
+        self.showsDisclosure = showsDisclosure
+        self.isSelected = isSelected
         self.handler = handler
         super.init(title: NSAttributedString(string: title))
     }
