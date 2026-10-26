@@ -171,7 +171,7 @@ public struct DefaultWKEngineConfigurationProvider: WKEngineConfigurationProvide
             .compactMap { $0 }
     }
 
-    private static func dataStore(isPrivate: Bool, route: ProxyRoute) -> WKWebsiteDataStore {
+    public static func dataStore(isPrivate: Bool, route: ProxyRoute) -> WKWebsiteDataStore {
         switch (isPrivate, route) {
         case (false, .direct):
             return directStore

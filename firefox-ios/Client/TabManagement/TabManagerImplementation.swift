@@ -1187,10 +1187,11 @@ final class TabManagerImplementation: NSObject,
     ) {
         MainActor.assertIsolated("Expected to be called only on main actor.")
         let resolvedRoute = proxyRoute(for: tab.url)
-        if tab.webView == nil {
+        let canCreateWebView = tab.webView == nil && !tab.isReroutingProxyRoute
+        if canCreateWebView {
             tab.proxyRoute = resolvedRoute
         }
-        let route = tab.webView == nil ? resolvedRoute : tab.proxyRoute
+        let route = canCreateWebView ? resolvedRoute : tab.proxyRoute
         ProxyRoutingLog.shared.add("restore tab \(route.rawValue) live=\(tab.webView != nil) \(tab.url?.host ?? "no url")")
         let configuration = tabConfigurationProvider.configuration(isPrivate: tab.isPrivate,
                                                                   route: route).webViewConfiguration
@@ -1470,9 +1471,32 @@ final class TabManagerImplementation: NSObject,
         // sessions, and navigating away mid-redirect breaks redirect dependent sites.
         tab.webView?.stopLoading()
         await tab.offloadWebView()
+
+        // A tab created as a popup keeps the configuration WebKit handed to the opener, and that
+        // configuration pins the opener's data store. Reusing it would create the rebuilt web view
+        // in the old store while the tab records the new route.
+        tab.requiredPopupConfiguration = nil
+
+        let expectedStore = DefaultWKEngineConfigurationProvider.dataStore(isPrivate: tab.isPrivate,
+                                                                          route: route)
         let configuration = tabConfigurationProvider.configuration(isPrivate: tab.isPrivate,
                                                                   route: route).webViewConfiguration
         tab.createWebview(configuration: configuration)
+
+        if let webView = tab.webView, webView.configuration.websiteDataStore !== expectedStore {
+            ProxyRoutingLog.shared.add("store mismatch after rebuild, rebuilding again")
+            await tab.offloadWebView()
+            let retryConfiguration = tabConfigurationProvider.configuration(isPrivate: tab.isPrivate,
+                                                                           route: route).webViewConfiguration
+            tab.createWebview(configuration: retryConfiguration)
+        }
+
+        if let webView = tab.webView, webView.configuration.websiteDataStore === expectedStore {
+            ProxyRoutingLog.shared.add("rebuild verified \(route.rawValue) store")
+        } else {
+            ProxyRoutingLog.shared.add("rebuild FAILED to reach \(route.rawValue) store")
+        }
+
         tab.loadRequest(URLRequest(url: url))
         return true
     }
