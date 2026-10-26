@@ -1,0 +1,1 @@
+10591:/Users/runner/work/firefox-ios-proxied/firefox-ios-proxied/BrowserKit/Sources/WebEngine/WKWebview/DefaultWKEngineConfigurationProvider.swift:165:49: error: cannot use optional chaining on non-optional value of type '[ProxyConfiguration]'
