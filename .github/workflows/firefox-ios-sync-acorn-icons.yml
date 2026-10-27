@@ -2,8 +2,9 @@ name: Sync Icons from Acorn repo
 
 on: 
     workflow_dispatch:
-    schedule:
-      - cron: '0 12 * * SUN'
+    # Scheduled automation disabled for this fork; workflows run on push.
+    #schedule:
+#      - cron: '0 12 * * SUN'
 
 jobs:
     download_icons_if_needed:

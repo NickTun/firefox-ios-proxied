@@ -2,8 +2,9 @@ name: "Focus UI Tests"
 
 on:
   workflow_dispatch: {}
-  schedule:
-    - cron: "0 14 * * *"
+  # Scheduled automation disabled for this fork; workflows run on push.
+  #schedule:
+#    - cron: "0 14 * * *"
 
 env:
     browser: focus-ios

@@ -2,9 +2,7 @@
 name: Glean probe-scraper
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    branches: [main, 'feat/**', 'build/**']
 jobs:
   glean-probe-scraper:
     uses: mozilla/probe-scraper/.github/workflows/glean.yaml@8babd339371f24c970c257ba9a523967c9c86a40 # main

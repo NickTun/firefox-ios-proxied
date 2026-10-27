@@ -1,7 +1,8 @@
 name: Update URIs and Create PR
 on:
-  schedule:
-    - cron: '0 0 1 * *' # Runs at 00:00 on the first day of every month
+  # Scheduled automation disabled for this fork; workflows run on push.
+  #schedule:
+#    - cron: '0 0 1 * *' # Runs at 00:00 on the first day of every month
   workflow_dispatch:
     inputs:
       branchName:

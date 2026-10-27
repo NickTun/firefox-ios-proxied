@@ -1,7 +1,8 @@
 name: Create a PR if there are changes in effective_tld_names file
 on:
-  schedule:
-    - cron: '0 6 1,15 * *'
+  # Scheduled automation disabled for this fork; workflows run on push.
+  #schedule:
+#    - cron: '0 6 1,15 * *'
   workflow_dispatch:
     inputs:
       branchName:

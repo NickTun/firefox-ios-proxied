@@ -7,12 +7,6 @@ on:
     paths:
       - 'focus-ios/**'
       - '.github/workflows/focus-ios-l10n-linter.yml'
-  pull_request:
-    branches:
-      - main
-    paths:
-      - 'focus-ios/**'
-      - '.github/workflows/focus-ios-l10n-linter.yml'
   workflow_dispatch:
 
 jobs:

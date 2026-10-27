@@ -1,7 +1,8 @@
 name: Create a PR to update Kingfisher to the newest version available
 on:
-  schedule:
-    - cron: '0 8 * * 1'
+  # Scheduled automation disabled for this fork; workflows run on push.
+  #schedule:
+#    - cron: '0 8 * * 1'
   workflow_dispatch:
     inputs:
       branchName:

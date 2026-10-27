@@ -5,8 +5,9 @@ permissions:
   pull-requests: write
 
 on:
-  schedule:
-    - cron: '0 10 * * MON'
+  # Scheduled automation disabled for this fork; workflows run on push.
+  #schedule:
+#    - cron: '0 10 * * MON'
   workflow_dispatch:
 
 jobs:

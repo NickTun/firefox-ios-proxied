@@ -4,11 +4,8 @@ on:
   push:
     branches:
       - main
-    paths-ignore:
-      - 'focus-ios/**'
-  pull_request:
-    branches:
-      - main
+      - 'feat/**'
+      - 'build/**'
     paths-ignore:
       - 'focus-ios/**'
   workflow_dispatch:

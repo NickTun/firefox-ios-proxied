@@ -2,9 +2,10 @@ name: (Local AS flow) Create a PR for release with the newest A-S version availa
 
 # Controls when the workflow will run
 on:
-  schedule:
-    # 08:00 UTC daily
-    - cron: "0 8 * * *"
+  # Scheduled automation disabled for this fork; workflows run on push.
+  #schedule:
+#    # 08:00 UTC daily
+#    - cron: "0 8 * * *"
   workflow_dispatch:
 
 permissions:

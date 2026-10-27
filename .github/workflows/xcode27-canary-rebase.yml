@@ -15,10 +15,11 @@ name: Rebase Xcode 27 canary branch onto main
 # operates on another branch.
 
 on:
-  schedule:
-    # 06:00 GMT daily. GitHub cron is UTC-only, which matches GMT, so this needs
-    # no DST handling.
-    - cron: '0 6 * * *'
+  # Scheduled automation disabled for this fork; workflows run on push.
+  #schedule:
+#    # 06:00 GMT daily. GitHub cron is UTC-only, which matches GMT, so this needs
+#    # no DST handling.
+#    - cron: '0 6 * * *'
   workflow_dispatch:
     inputs:
       branchName:

@@ -2,8 +2,9 @@ name: Update README with current tech stack
 
 on: 
     workflow_dispatch:
-    schedule:
-      - cron: '0 12 * * SUN'
+    # Scheduled automation disabled for this fork; workflows run on push.
+    #schedule:
+#      - cron: '0 12 * * SUN'
 
 jobs:
     update_readme_with_current_stack:

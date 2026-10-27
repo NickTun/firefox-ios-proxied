@@ -5,8 +5,9 @@
 name: "Firefox Update Nimbus Experiments"
 
 on:
-  schedule:
-    - cron: '*/30 * * * *'
+  # Scheduled automation disabled for this fork; workflows run on push.
+  #schedule:
+#    - cron: '*/30 * * * *'
   workflow_dispatch: {}
 
 jobs:

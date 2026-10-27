@@ -3,9 +3,10 @@ name: Fetch Remote Settings
 # Remote settings are updated every Tuesday and Thursday
 
 on:
-  schedule:
-    - cron: '0 0 * * 2' # Every Tuesday at midnight
-    - cron: '0 0 * * 4' # Every Thursday at midnight
+  # Scheduled automation disabled for this fork; workflows run on push.
+  #schedule:
+#    - cron: '0 0 * * 2' # Every Tuesday at midnight
+#    - cron: '0 0 * * 4' # Every Thursday at midnight
   workflow_dispatch: # Allows manual triggering of the workflow
 
 env:

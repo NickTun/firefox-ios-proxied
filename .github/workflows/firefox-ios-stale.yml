@@ -4,8 +4,9 @@
 
 name: Close Stale Issues
 on:
-  schedule:
-    - cron: "0 0 * * *" # Once per day at midnight
+  # Scheduled automation disabled for this fork; workflows run on push.
+  #schedule:
+#    - cron: "0 0 * * *" # Once per day at midnight
   workflow_dispatch: {}
 
 jobs:

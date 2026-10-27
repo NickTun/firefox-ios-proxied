@@ -7,8 +7,9 @@ on:
         required: false
         type: string
         default: "main"
-  schedule:
-    - cron: "0 22 * * 6"
+  # Scheduled automation disabled for this fork; workflows run on push.
+  #schedule:
+#    - cron: "0 22 * * 6"
 
 jobs:
   determine-locales:
